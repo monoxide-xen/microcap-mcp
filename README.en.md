@@ -86,7 +86,7 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `plot` | return Micro-Cap's rendered plot as a JPEG |
 | `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
 | `describe_example` | which analyses a circuit supports and what it plots, without running it |
-| `list_domains` | the 44 reference domains and their sizes |
+| `list_domains` | the 43 reference domains and their sizes |
 | `search_examples` | search the reference circuits |
 | `get_example` | fetch a reference circuit's source |
 
@@ -94,6 +94,12 @@ Complex output (AC, S-parameters, Smith charts) is returned as `{"re", "im"}`.
 
 Supported analyses: `transient`, `ac`, `dc`, `harmonic_distortion`,
 `intermodulation_distortion`, `stability`.
+
+Beyond the tools the server exposes **resources** — `microcap://guide` (how not
+to let Micro-Cap silently mislead you: choosing an analysis, trusting the
+solver, reading complex data, SPICE rules) and `microcap://domains` (a map of
+the 43 reference-circuit domains) — and an `analyse_circuit` **prompt** for the
+common workflow.
 
 ## Example
 

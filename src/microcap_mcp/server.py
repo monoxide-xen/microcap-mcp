@@ -13,7 +13,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from . import cir, corpus
+from . import cir, corpus, knowledge
 from .runner import MicroCap, MicroCapError
 
 mcp = FastMCP("microcap")
@@ -305,6 +305,55 @@ def get_example(name: str) -> dict[str, Any]:
         "format": "spice_netlist" if e.is_netlist else "microcap_schematic",
         "content": e.path.read_text(encoding="cp1252", errors="replace"),
     }
+
+
+# --------------------------------------------------------------------------
+# knowledge — resources and a prompt, so the competence travels with the tools
+# --------------------------------------------------------------------------
+
+
+@mcp.resource(
+    "microcap://guide",
+    title="Micro-Cap simulation guide",
+    description="How to drive Micro-Cap competently: choosing an analysis, "
+    "not being fooled by empty results, judging solver trust, reading complex "
+    "and digital data, SPICE essentials.",
+    mime_type="text/markdown",
+)
+def guide() -> str:
+    return knowledge.GUIDE
+
+
+@mcp.resource(
+    "microcap://domains",
+    title="Reference circuit domains",
+    description="The 43 domains of shipped reference circuits and what each is "
+    "for — reach for a worked topology before inventing one.",
+    mime_type="text/markdown",
+)
+def domains_resource() -> str:
+    return knowledge.domain_map()
+
+
+@mcp.prompt(
+    title="Analyse a circuit",
+    description="Guided workflow for measuring something about a circuit, "
+    "starting from a shipped reference where possible.",
+)
+def analyse_circuit(goal: str) -> str:
+    return (
+        f"I want to measure the following about a circuit: {goal}\n\n"
+        "Work from Micro-Cap's shipped references where possible. Steps:\n"
+        "1. Decide which analysis answers this (ac / transient / dc / "
+        "harmonic_distortion / intermodulation_distortion / stability).\n"
+        "2. `search_examples` for a relevant reference, then `describe_example` "
+        "to confirm it supports that analysis.\n"
+        "3. `simulate_example` (or `simulate` on an adapted netlist) and read "
+        "the data plus the `solver` block.\n"
+        "4. Report the measured result, and flag it if the solver block or an "
+        "empty/flat result suggests the run should not be trusted.\n\n"
+        "Consult the microcap://guide resource for the pitfalls."
+    )
 
 
 def main() -> None:
