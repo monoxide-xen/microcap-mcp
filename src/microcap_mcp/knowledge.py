@@ -86,6 +86,9 @@ text, then run the edited copy — `simulate` for a plain SPICE netlist, or
 To draw a simple circuit from nothing — a source driving R/C/L in series —
 `generate_schematic` returns a `.CIR` you can run or hand to the user.
 
+For an op-amp gain stage, `generate_amplifier` draws an inverting or
+non-inverting amplifier sized to a target gain.
+
 ## Pick the analysis that answers the question
 
 | Question | Analysis |

@@ -86,6 +86,7 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `plot` | return Micro-Cap's rendered plot as a JPEG |
 | `simulate_schematic` | run an arbitrary `.CIR` schematic — edit a reference and run the copy |
 | `generate_schematic` | draw a `.CIR` from scratch: a source + R/C/L in series and parallel (pin geometry from MC's library) |
+| `generate_amplifier` | draw a `.CIR` op-amp amplifier (inverting / non-inverting) sized to a target gain |
 | `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
 | `describe_example` | which analyses a circuit supports and what it plots, without running it |
 | `list_domains` | the 43 reference domains and their sizes |

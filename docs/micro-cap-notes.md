@@ -218,26 +218,26 @@ a resistive divider at exactly 0.5, an RL high-pass, and a charging transient.
 
 **Parallel branches work with the same passive geometry.** Elements sharing a
 node just need their own wire down to their own ground. A series R feeding a
-parallel L-C tank resonates at `1/(2*pi*sqrt(LC))` as it should. The generator
-supports series chains plus parallel shunt branches (RC/RL/RLC, dividers,
-tanks).
+parallel L-C tank resonates at `1/(2*pi*sqrt(LC))` as it should.
 
-**Active components hit a wall — geometry solved, instantiation not.** The pin
-geometry reads straight from `Standard.cmp`:
+**Active components need three extra things — none in the manual.** An op-amp is
+a macro/subcircuit component; a `.CIR` that instantiates one (unlike a passive)
+needs, found by bisecting a working circuit to its minimum:
 
-```
-Opamp: Plus in(0,0) Minus in(0,6) VEE(4,7) Output(9,3) VCC(4,-1)   ; grid units
-NPN:   Collector(3,-3) Base(0,0) Emitter(3,3)
-```
+* a `[Page]` section — minimally `[Page]
+Name=Page 1`;
+* the model in a `[Text Area]` **tagged with the page**:
+  `[Text Area]
+Section=0
+Page=1
+Text=.MODEL O1 OPA (LEVEL=1 A=1e6 ...)`;
+* **section order** — Main, Circuit, drawing, Page, Text Area, Limits, WaveForm.
+  Passives tolerate any order; the op-amp does not (wrong order gives
+  "Bad format in loading file"; a missing page gives "Missing model statement").
 
-The near-ideal LEVEL=1 op-amp needs no external supply (VCC/VEE float in the
-shipped OPAMP1). But an op-amp placed in a *minimal* generated `.CIR` — even
-OPAMP1's own op-amp block copied verbatim, model in `[Text Area]`, output
-labelled at the pin — fails to extract a netlist: `Can't find label 'OUT'`.
-The working OPAMP1 carries many more sections ([Schematic], [Object], [Page],
-...), one of which the schematic netliser needs to instantiate a macro/
-subcircuit component like the op-amp. Passives need none of that. Cracking
-active-component generation means reverse-engineering that macro infrastructure
-— genuine further work, so op-amps and transistors are not generated. A `.CKT`
-netlist with an op-amp subcircuit already simulates, if a drawn schematic is
-not required.
+Op-amp pins from `Standard.cmp` (grid units): Plus in (0,0), Minus in (0,6),
+Output (9,3); VCC (4,-1)/VEE (4,7) float for the near-ideal LEVEL=1 model.
+Transistors: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
+
+With these, the generator produces inverting and non-inverting op-amp
+amplifiers, verified against `-Rf/Rin` and `1 + Rf/Rg`.

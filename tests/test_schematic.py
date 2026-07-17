@@ -121,3 +121,49 @@ def test_shunt_output_node_is_not_grounded():
 def test_shunt_parts_are_validated_too():
     with pytest.raises(SchematicError, match="unsupported"):
         series_circuit([("R", "1K")], shunt=[("Q", "2N2222")], analysis="AC")
+
+
+# --------------------------------------------------------------------------
+# op-amp amplifiers (active components)
+# --------------------------------------------------------------------------
+
+from microcap_mcp.schematic import opamp_amplifier, _fmt_ohms  # noqa: E402
+
+
+def test_opamp_uses_the_required_page_and_model_association():
+    """The three cracked keys: a [Page], a [Text Area] tagged Section=0/Page=1
+    carrying the model, and the canonical order (drawing before Limits). Losing
+    any one makes the op-amp fail to instantiate.
+    """
+    cir = opamp_amplifier(gain=10, kind="inverting")
+    assert "[Page]\nName=Page 1" in cir
+    assert "[Text Area]\nSection=0\nPage=1\nText=.MODEL O1 OPA" in cir
+    # drawing (the op-amp) must come before [Limits]
+    assert cir.index("Name=Opamp") < cir.index("[Limits]")
+
+
+def test_inverting_sizes_the_feedback_resistor():
+    """gain = Rf/Rin, so Rf = gain*Rin."""
+    cir = opamp_amplifier(gain=10, kind="inverting", rin="1K")
+    assert "RESISTANCE\nV=1K" in cir       # Rin
+    assert "RESISTANCE\nV=10K" in cir      # Rf = 10 * 1K
+
+
+def test_non_inverting_sizes_the_feedback_resistor():
+    """gain = 1 + Rf/Rg, so Rf = (gain-1)*Rg."""
+    cir = opamp_amplifier(gain=11, kind="non-inverting", rin="1K")
+    assert "RESISTANCE\nV=10K" in cir      # Rf = (11-1) * 1K
+
+
+def test_fmt_ohms():
+    assert _fmt_ohms(10_000) == "10K"
+    assert _fmt_ohms(2_200_000) == "2.2MEG"
+    assert _fmt_ohms(470) == "470"
+    assert _fmt_ohms(0) == "0"
+
+
+def test_bad_gain_and_kind_rejected():
+    with pytest.raises(SchematicError):
+        opamp_amplifier(gain=0, kind="inverting")
+    with pytest.raises(SchematicError):
+        opamp_amplifier(gain=5, kind="cascode")

@@ -30,6 +30,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 # Import the server tools the way an MCP client calls them.
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
+    generate_amplifier,
     generate_schematic,
     get_example,
     search_examples,
@@ -191,3 +192,16 @@ def test_generated_lc_tank_resonates():
     f, v = r["data"]["F"], r["data"]["V(OUT)"]
     peak = max(range(len(v)), key=lambda i: v[i])
     assert f[peak] == pytest.approx(5033, rel=0.1), "tank must resonate near f0"
+
+
+@pytest.mark.parametrize("kind,gain", [("inverting", 10), ("inverting", 2), ("non-inverting", 11)])
+def test_generated_opamp_amplifier_hits_its_gain(kind, gain):
+    """Op-amps are macro components needing a [Page] and a page-tagged model —
+    the cracked wall. The generated amplifier must hit its designed gain.
+    """
+    g = generate_amplifier(gain=gain, kind=kind, rin="1K", analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=10)
+    assert "error" not in r, r
+    got = abs(complex(*r["data"]["V(OUT)"][0].values())) if isinstance(r["data"]["V(OUT)"][0], dict) else abs(r["data"]["V(OUT)"][0])
+    assert got == pytest.approx(gain, rel=0.1)

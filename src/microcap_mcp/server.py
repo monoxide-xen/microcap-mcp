@@ -154,6 +154,49 @@ def simulate(
 
 
 @mcp.tool()
+def generate_amplifier(
+    gain: float,
+    kind: str = "inverting",
+    rin: str = "1K",
+    source: str = "DC=0 AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUT",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` op-amp amplifier with a near-ideal op-amp.
+
+    ``inverting`` gives gain ``-Rf/Rin``; ``non-inverting`` gives ``1 + Rf/Rg``.
+    The feedback resistor is sized from ``gain`` and ``rin``. Produces a drawn
+    schematic; feed it to ``simulate_schematic`` or hand the ``.CIR`` to the user.
+
+    Args:
+        gain: magnitude of the closed-loop gain (> 0; non-inverting needs >= 1).
+        kind: ``inverting`` or ``non-inverting``.
+        rin: input resistor (inverting) or gain resistor to ground
+            (non-inverting); sets the feedback resistor from the gain.
+        source: source VALUE, Micro-Cap syntax (``"DC=0 AC=1"`` for AC).
+        analysis: AC, Transient, or DC.
+        output_node: label for the output node.
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.opamp_amplifier(
+            gain=gain, kind=kind, rin=rin, source=source,
+            analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "run it with simulate_schematic, or save it as a .CIR to open in Micro-Cap",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",
