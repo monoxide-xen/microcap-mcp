@@ -86,7 +86,7 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `plot` | отдаёт график, отрисованный Micro-Cap, как JPEG |
 | `simulate_example` | считает одну из ~490 схем из поставки Micro-Cap |
 | `describe_example` | какие анализы схема поддерживает и что строит — без запуска |
-| `list_domains` | 44 домена эталонных схем и их размеры |
+| `list_domains` | 43 домена эталонных схем и их размеры |
 | `search_examples` | поиск по эталонным схемам |
 | `get_example` | исходник эталонной схемы |
 
@@ -94,6 +94,11 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 
 Поддерживаемые анализы: `transient`, `ac`, `dc`, `harmonic_distortion`,
 `intermodulation_distortion`, `stability`.
+
+Помимо тулзов сервер отдаёт **ресурсы** — `microcap://guide` (как не дать
+Micro-Cap молча соврать: выбор анализа, доверие к солверу, чтение комплексных
+данных, правила SPICE) и `microcap://domains` (карта 43 доменов эталонных схем)
+— и **промпт** `analyse_circuit` для типового рабочего цикла.
 
 ## Пример
 
