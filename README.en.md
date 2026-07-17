@@ -138,6 +138,20 @@ of topology, not an alarm: switching converters sit at 18–23%, linear circuits
 the solver cuts the step at each switching edge, which is normal. Past 15%, a note is
 added to the response.
 
+## Worked example: characterise a filter
+
+The loop `microcap://guide` prescribes — find a reference, don't invent one:
+
+```python
+search_examples("bandpass")          # → BPFILT (Filters domain); the search is
+                                     #   semantic even though the name is cryptic
+describe_example("BPFILT")           # → supports AC; plots Mag(v(S3)/v(In))
+r = simulate_example("BPFILT", analysis="ac")
+```
+
+From the data: peak gain **37.5 at 627 Hz**, −3 dB band **453…1115 Hz** (Q ≈ 0.95).
+Then `get_example` + `simulate_schematic` to edit a value and run the copy.
+
 ## Tests
 
 ```bash

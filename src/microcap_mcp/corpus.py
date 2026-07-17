@@ -71,7 +71,26 @@ def find(name: str) -> Example:
 
 
 def search(query: str, limit: int = 25) -> list[Example]:
-    """Substring search over circuit and domain names."""
-    q = query.lower()
-    hits = [e for e in list_examples() if q in e.name.lower() or q in e.domain.lower()]
-    return hits[:limit]
+    """Substring search over circuit name, domain, and domain purpose.
+
+    The shipped names are cryptic — a bandpass filter is ``BPFILT`` — so a
+    plain name search misses obvious queries: ``search("bandpass")`` found
+    nothing though the corpus has bandpass filters. Matching the query against
+    each domain's purpose ("...low/high/band-pass, notch") bridges the gap, so
+    a semantic term reaches the right domain's circuits. Name/domain hits rank
+    first; purpose-only hits follow.
+    """
+    from .knowledge import DOMAIN_PURPOSE
+
+    q = query.lower().replace("-", "")
+
+    def norm(s: str) -> str:
+        return s.lower().replace("-", "")
+
+    direct, viapurpose = [], []
+    for e in list_examples():
+        if q in norm(e.name) or q in norm(e.domain):
+            direct.append(e)
+        elif q in norm(DOMAIN_PURPOSE.get(e.domain, "")):
+            viapurpose.append(e)
+    return (direct + viapurpose)[:limit]

@@ -19,6 +19,15 @@ def test_every_purpose_key_names_a_plausible_domain():
         assert name and purpose, f"empty entry for {name!r}"
 
 
+def test_filter_purpose_enables_a_bandpass_search():
+    """search() matches the query against domain purposes, so the Filters
+    purpose must actually mention band-pass — otherwise search('bandpass')
+    finds nothing, since the reference is cryptically named 'BPFILT'.
+    """
+    purpose = knowledge.DOMAIN_PURPOSE["Filters"].lower().replace("-", "")
+    assert "bandpass" in purpose
+
+
 def test_techniques_are_marked_as_such():
     """Some 'domains' are analysis techniques, not circuit types. An agent that
     treats 'Optimizer' as a topology to copy is misled, so they are flagged.
