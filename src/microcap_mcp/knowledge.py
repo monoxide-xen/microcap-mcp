@@ -78,6 +78,11 @@ Before writing a netlist from memory, look for one:
 A reference gives you a topology that already converges and a set of node
 names that exist. Adapting one beats inventing from scratch.
 
+To adapt: fetch it with `get_example`, change a component value or two in the
+text, then run the edited copy — `simulate` for a plain SPICE netlist, or
+`simulate_schematic` for the coordinate-carrying `.CIR` format that
+`get_example` returns for schematics.
+
 ## Pick the analysis that answers the question
 
 | Question | Analysis |

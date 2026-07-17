@@ -30,9 +30,11 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 # Import the server tools the way an MCP client calls them.
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
+    get_example,
     search_examples,
     simulate,
     simulate_example,
+    simulate_schematic,
     sweep,
 )
 
@@ -117,6 +119,23 @@ def test_complex_s_parameter_output():
     cell = r["data"][s][0]
     assert isinstance(cell, dict) and "re" in cell and "im" in cell
     assert abs(complex(cell["re"], cell["im"])) > 0
+
+
+def test_adapt_a_reference_schematic():
+    """The loop the guide prescribes and the tools must actually close: fetch a
+    reference .CIR, change a component value, and see the result move.
+    """
+    cir = get_example("BPFILT")["content"]
+    assert cir and "V=4.48K" in cir, "expected R1=4.48K in the reference"
+
+    base = simulate_schematic(cir, analysis="ac", max_points=5)
+    assert "error" not in base, base
+
+    edited = simulate_schematic(cir.replace("V=4.48K", "V=44.8K", 1), analysis="ac", max_points=5)
+    assert "error" not in edited, edited
+
+    col = base["columns"][1]
+    assert base["data"][col] != edited["data"][col], "the edit must reach the result"
 
 
 def test_bad_netlist_returns_error_not_crash():

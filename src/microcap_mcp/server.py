@@ -154,6 +154,42 @@ def simulate(
 
 
 @mcp.tool()
+def simulate_schematic(
+    schematic: str,
+    analysis: str = "ac",
+    defines: dict[str, str] | None = None,
+    points: int = 200,
+    max_points: int = 200,
+) -> dict[str, Any]:
+    """Run a Micro-Cap ``.CIR`` schematic and return its data.
+
+    Use this to adapt a reference: fetch one with ``get_example`` (its
+    ``format`` will be ``microcap_schematic``), change a component value or two
+    in the text, and run the modified schematic here. ``simulate`` is for plain
+    SPICE netlists; this is for the coordinate-carrying ``.CIR`` format.
+
+    Numeric export is switched on automatically, ``NPts`` is overridden to
+    ``points`` (the shipped setting is often ``0``, which exports one row), and
+    the symbolic transient bound ``TMIN`` is repaired for batch mode — all the
+    things that make a stock schematic yield no data otherwise.
+
+    Args:
+        schematic: full ``.CIR`` text.
+        analysis: which of the circuit's analyses to run.
+        defines: values for any ``.DEFINE`` symbols the schematic uses.
+        points: resolution to compute at; see ``simulate_example``.
+        max_points: cap on returned samples.
+    """
+    try:
+        result = _driver().simulate_cir(
+            schematic, analysis=analysis, defines=defines, plot_image=False, points=points
+        )
+        return _summarise(result, max_points)
+    except (MicroCapError, ValueError) as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
 def sweep(
     netlist: str,
     parameter: str,
