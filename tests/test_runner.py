@@ -138,3 +138,31 @@ def test_bad_microcap_home_says_so(tmp_path, monkeypatch):
     monkeypatch.setenv("MICROCAP_HOME", str(tmp_path / "nope"))
     with pytest.raises(MicroCapError, match="MICROCAP_HOME"):
         find_install()
+
+
+# --------------------------------------------------------------------------
+# batch bisection
+# --------------------------------------------------------------------------
+
+from microcap_mcp.runner import bisect  # noqa: E402
+
+
+def test_bisect_halves_a_batch():
+    a, b = bisect(list(range(10)))
+    assert a == list(range(5)) and b == list(range(5, 10))
+
+
+def test_bisect_leaves_a_singleton_for_solo_rerun():
+    """A lone leftover is not split further — the caller re-runs it on its own
+    so its .DOC survives. 19 of 28 'silent' failures were healthy circuits that
+    a bisecting batch had discarded without keeping their real diagnosis.
+    """
+    assert bisect([42]) == ([42], [])
+
+
+def test_bisect_handles_empty():
+    assert bisect([]) == ([], [])
+
+
+def test_bisect_of_two_splits_one_and_one():
+    assert bisect(["a", "b"]) == (["a"], ["b"])
