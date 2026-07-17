@@ -1,0 +1,24 @@
+# Extracted from mc12.chm — Spectrum Software's copyrighted documentation.
+# Decompiling it locally to study the tool is one thing; redistributing it is
+# another. It never goes in the repo. Users extract their own copy from their
+# own install (see README).
+knowledge/chm/
+
+# Raw sweep output: hundreds of MB of per-run records, regenerable in ~16 min
+# with `uv run python eval/harness.py --all`. Only the summary is worth keeping.
+eval/results/*.jsonl
+eval/results/*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
