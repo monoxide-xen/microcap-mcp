@@ -1,0 +1,34 @@
+name: tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # The server drives a Windows-only simulator, but the parser, the .CIR
+    # handling and the log reader are pure text processing. Running them on
+    # Linux too keeps it that way — anything that quietly grows a Windows
+    # dependency will fail here first.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.11", "3.13"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --all-extras --dev
+
+      - name: Test
+        run: uv run pytest -q

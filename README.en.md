@@ -7,6 +7,7 @@
 Lets an LLM agent simulate analog circuits: run analyses, sweep parameters,
 get waveform data and plots.
 
+[![tests](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg?logo=windows&logoColor=white)](#install)
@@ -124,6 +125,15 @@ The RC cutoff `1/(2πRC)` is 1000 Hz, where the gain should be `1/√2 ≈ 0.707
 
 `solver.rejected_solutions` counts the solutions the solver threw away. A non-zero value
 means the run technically completed but the waveform should not be trusted.
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+60 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
+text processing. Each test pins a real bug against output Micro-Cap actually produced.
 
 ## Corpus evaluation
 
