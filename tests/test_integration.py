@@ -87,6 +87,14 @@ C1 OUT 0 159.155N
     assert g10 < g1, "a 10x larger R must attenuate more at the old cutoff"
 
 
+def test_semantic_search_finds_cryptically_named_circuits():
+    """A bandpass filter is shipped as 'BPFILT'. Searching the semantic term
+    must still find it, via the domain purpose — a plain name search does not.
+    """
+    hits = search_examples("bandpass")
+    assert any(h["domain"] == "Filters" for h in hits), hits
+
+
 def test_reference_first_workflow():
     """The workflow the guide prescribes: search -> describe -> simulate."""
     hits = search_examples("filter")
