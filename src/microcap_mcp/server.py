@@ -215,7 +215,8 @@ def generate_schematic(
     (R, C, L), and optional parallel shunt branches. That covers RC/RL/RLC,
     dividers, and resonant tanks. Every pin position is taken from Micro-Cap's
     own component library, so the drawn circuit is electrically what you asked
-    for. Active parts (op-amps, transistors) are not supported.
+    for. For an op-amp gain stage use generate_amplifier; transistors
+    are not yet supported.
 
     Args:
         parts: ordered ``"KIND=VALUE"`` strings in series, KIND in R/C/L, e.g.
