@@ -241,3 +241,13 @@ Transistors: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
 
 With these, the generator produces inverting and non-inverting op-amp
 amplifiers, verified against `-Rf/Rin` and `1 + Rf/Rg`.
+
+**Transistors are harder than op-amps.** The NPN is a *primitive* (not a macro),
+referencing a model by name — `2N2222` from the global library, or a local
+`.MODEL QN NPN (...)`. Its three pins from `Standard.cmp` are Collector (3,-3),
+Base (0,0), Emitter (3,3) — but those are the *unrotated* positions, and every
+transistor in the shipped library is placed rotated (`Rot=6`), which permutes
+the pins non-trivially. A transistor placed at `Rot=0` did not instantiate in a
+generated `.CIR` (`Can't find label`), so getting one right needs rotation-aware
+pin geometry — a further increment. Op-amp amplifiers ship; transistor stages do
+not yet.
