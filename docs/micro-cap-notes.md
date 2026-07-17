@@ -172,3 +172,31 @@ Low Range Error: Unknown identifier 'TMIN'.
 53 КБ против 315 КБ у настоящего графика.
 
 Вывод: гасить окно можно только когда картинка не запрошена.
+
+## Generating a `.CIR` from scratch
+
+Findings from an attempt to synthesise schematics (not shipped — see below).
+
+**Shape and component definitions are built-in.** A `.CIR` that places parts by
+name (`Resistor`, `Capacitor`, `Ground`, ...) without embedding any `[shapedef]`
+or `[compdef]` still opens and simulates. Stripping all 12 definitions from a
+working circuit left it fully functional. So a generator needs only `[Main]`,
+`[Comp]`/`[Attr]` placements, `[Wire]` segments, `[Grid Text]` node labels, and
+`[Limits]`.
+
+**A node is named by a `[Grid Text]` label at its wire coordinate**, e.g.
+`[Grid Text]\nText="OUT"\nPx=160,128`. That is how you get a probeable `V(OUT)`.
+
+**A plot expression needs `Plt`, `AliasID` and `Enable`**, or Micro-Cap reports
+"Must select an expression to plot" — a `[WaveForm]` with only `YExp=` is
+ignored.
+
+**Where it gets hard: sources are model-driven, not inline.** The `Voltage
+Source`, `Battery` and `Sine_Source` components carry only a `PART` attribute
+and take their value from a model reference, with per-part pin geometry and
+non-zero rotations (`Rot=3`, `Rot=7`). Getting a source to actually drive a
+generated circuit — rather than leave `V(OUT)=0` — means reverse-engineering
+each source's model and pin convention. That is genuine multi-part work for a
+niche payoff (a drawn schematic; a `.CKT` netlist already opens and simulates),
+so schematic generation was not shipped. Two-terminal passive geometry is
+simple (pins at the shape's x-span ends at `Rot=0`); the sources are the wall.
