@@ -146,7 +146,7 @@ uv run pytest
 установленного Micro-Cap:
 
 ```bash
-MICROCAP_HOME=D:/Games/MC12 uv run pytest tests/test_integration.py
+MICROCAP_HOME=C:/MC12 uv run pytest tests/test_integration.py
 ```
 
 Без Micro-Cap интеграционные пропускаются, поэтому CI остаётся зелёным.
