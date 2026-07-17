@@ -73,9 +73,15 @@ def _solver_report(s) -> dict[str, Any]:
     return report
 
 
-def _json_safe(x: float) -> float | None:
-    """NaN marks a value Micro-Cap reported as NA. JSON has no NaN, so it
-    travels as null rather than as invalid JSON or a silent zero."""
+def _json_safe(x: float | complex) -> float | dict | None:
+    """Make one cell JSON-safe.
+
+    A complex value (AC / S-parameter output) travels as ``{"re", "im"}``. NaN
+    marks a value Micro-Cap reported as NA — JSON has no NaN, so it becomes
+    null rather than invalid JSON or a silent zero.
+    """
+    if isinstance(x, complex):
+        return {"re": _json_safe(x.real), "im": _json_safe(x.imag)}
     return None if x != x else x
 
 
