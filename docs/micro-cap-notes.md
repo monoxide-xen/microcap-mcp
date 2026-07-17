@@ -175,28 +175,41 @@ Low Range Error: Unknown identifier 'TMIN'.
 
 ## Generating a `.CIR` from scratch
 
-Findings from an attempt to synthesise schematics (not shipped — see below).
+Facts that make schematic generation work (the driver ships a bounded
+generator — a source and a series chain of two-terminal passives):
 
 **Shape and component definitions are built-in.** A `.CIR` that places parts by
 name (`Resistor`, `Capacitor`, `Ground`, ...) without embedding any `[shapedef]`
-or `[compdef]` still opens and simulates. Stripping all 12 definitions from a
-working circuit left it fully functional. So a generator needs only `[Main]`,
+or `[compdef]` still opens and simulates. So a generator needs only `[Main]`,
 `[Comp]`/`[Attr]` placements, `[Wire]` segments, `[Grid Text]` node labels, and
 `[Limits]`.
 
+**Pin geometry lives in `Standard.cmp`**, in grid units (×8 for pixels):
+
+```
+[compdef]
+Name=Resistor
+Pin="Plus",6,0,-10,-4     ; Plus at grid (6,0) = 48 px
+Pin="Minus",0,0,-14,-4    ; Minus at grid (0,0)
+```
+
+Every supported two-terminal part — R, C, L, Battery, Voltage Source — shares
+this layout: Minus at (0,0), Plus at (6,0), horizontal at `Rot=0`. Knowing the
+real pin positions is the difference between building the intended circuit and
+whatever Micro-Cap extracts from misplaced wires (a guessed vertical source
+left `V(OUT)=0`).
+
 **A node is named by a `[Grid Text]` label at its wire coordinate**, e.g.
-`[Grid Text]\nText="OUT"\nPx=160,128`. That is how you get a probeable `V(OUT)`.
+`[Grid Text]
+Text="OUT"
+Px=160,128`.
 
-**A plot expression needs `Plt`, `AliasID` and `Enable`**, or Micro-Cap reports
-"Must select an expression to plot" — a `[WaveForm]` with only `YExp=` is
-ignored.
+**A plot expression needs `Plt`/`AliasID`/`Enable`**, or Micro-Cap reports
+"Must select an expression to plot".
 
-**Where it gets hard: sources are model-driven, not inline.** The `Voltage
-Source`, `Battery` and `Sine_Source` components carry only a `PART` attribute
-and take their value from a model reference, with per-part pin geometry and
-non-zero rotations (`Rot=3`, `Rot=7`). Getting a source to actually drive a
-generated circuit — rather than leave `V(OUT)=0` — means reverse-engineering
-each source's model and pin convention. That is genuine multi-part work for a
-niche payoff (a drawn schematic; a `.CKT` netlist already opens and simulates),
-so schematic generation was not shipped. Two-terminal passive geometry is
-simple (pins at the shape's x-span ends at `Rot=0`); the sources are the wall.
+**A `Voltage Source` (`Definition=VSpice`) takes a `VALUE` attribute** in
+Micro-Cap syntax, e.g. `DC=0 AC=1` for an AC probe or a `PULSE ...` line for
+transient — not the SPICE `AC 1` spelling.
+
+Verified by generating an RC low-pass that reproduces `1/sqrt(2)` at the cutoff,
+a resistive divider at exactly 0.5, an RL high-pass, and a charging transient.
