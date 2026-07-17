@@ -236,9 +236,40 @@ def report(results: list[Outcome], elapsed: float) -> None:
 
     stressed = [r for r in results if r.ok and r.rejected]
     if stressed:
-        print(f"\nconverged but solver strained ({len(stressed)}):")
+        print(f"\nsolver rejected timesteps ({len(stressed)} runs, normal for fast edges):")
         for r in sorted(stressed, key=lambda x: -(x.rejected or 0))[:5]:
-            print(f"  {r.circuit}/{r.analysis}: {r.rejected} rejected solutions")
+            print(f"  {r.circuit}/{r.analysis}: {r.rejected} rejected")
+
+
+def compare(results: list[Outcome], baseline_path: pathlib.Path) -> None:
+    """Diff against a previous run, per circuit.
+
+    The headline pass rate hides trades. One change here fixed 39 circuits and
+    broke others at the same time; the total went up, so it read as pure
+    progress and the regression survived three more sweeps. Only a per-circuit
+    diff shows it.
+    """
+    if not baseline_path.exists():
+        print(f"\nno baseline at {baseline_path} — nothing to compare")
+        return
+
+    old = {}
+    for line in baseline_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            old[(r["circuit"], r["analysis"])] = r
+    new = {(r.circuit, r.analysis): r for r in results}
+
+    gained = sorted(k for k, r in new.items() if r.ok and k in old and not old[k]["ok"])
+    lost = sorted(k for k, r in new.items() if not r.ok and k in old and old[k]["ok"])
+
+    print(f"\nvs {baseline_path.name}:  +{len(gained)} fixed  -{len(lost)} broken")
+    for k in lost[:10]:
+        print(f"  BROKEN  {k[0]}/{k[1]}: {new[k].detail[:60]}")
+    for k in gained[:5]:
+        print(f"  fixed   {k[0]}/{k[1]}")
+    if lost:
+        print("\n  ^ a regression is not excused by a net gain.")
 
 
 def make_window(q: "queue.Queue"):
@@ -291,6 +322,9 @@ def main() -> None:
     ap.add_argument("--window", action="store_true", help="show a progress window")
     ap.add_argument("--out", default="eval/results/outcomes.jsonl",
                     help="append every outcome here as it happens")
+    ap.add_argument("--compare", metavar="JSONL",
+                    help="diff against a previous run, per circuit — the pass "
+                         "rate alone hides fixes that break something else")
     args = ap.parse_args()
 
     pool = corpus.list_examples(args.domain) if args.domain else corpus.list_examples()
@@ -324,6 +358,8 @@ def main() -> None:
         work()
 
     report(results, time.time() - t0)
+    if args.compare:
+        compare(results, pathlib.Path(args.compare))
 
 
 if __name__ == "__main__":

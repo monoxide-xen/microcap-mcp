@@ -144,36 +144,6 @@ def test_set_points_adds_npts_when_missing():
 
 
 # --------------------------------------------------------------------------
-# numeric range
-# --------------------------------------------------------------------------
-
-
-def test_symbolic_range_is_replaced_with_concrete_bounds():
-    """`TMIN`/`TMAX` resolve interactively but not in batch, where they give
-    `Low Range Error: Unknown identifier 'TMIN'` and no table at all.
-    """
-    patched, changed = cir.resolve_numeric_range(SAMPLE, "transient")
-    assert changed
-    assert 'Num Out Low="0"' in patched
-    assert 'Num Out High="8"' in patched
-    assert "TMIN" not in patched
-
-
-def test_ac_range_comes_from_frange_high_first():
-    """`FRange=100K,1` is high,low — not low,high."""
-    patched, changed = cir.resolve_numeric_range(SAMPLE, "ac")
-    assert changed
-    assert 'Num Out Low="1"' in patched
-    assert 'Num Out High="100K"' in patched
-
-
-def test_resolve_numeric_range_is_a_no_op_without_limits():
-    text = "[Transient]\nNum Out Low=\"TMIN\"\n"
-    patched, changed = cir.resolve_numeric_range(text, "transient")
-    assert not changed and patched == text
-
-
-# --------------------------------------------------------------------------
 # DC source
 # --------------------------------------------------------------------------
 
@@ -195,3 +165,50 @@ def test_dc_without_a_source_is_a_circuit_that_was_never_set_up():
 def test_dc_source_set_to_none_counts_as_absent():
     text = SAMPLE.replace("I1=V1", "I1=NONE")
     assert cir.dc_swept_source(text) is None
+
+
+
+# --------------------------------------------------------------------------
+# numeric range
+# --------------------------------------------------------------------------
+
+
+def test_tmin_is_swapped_for_tstart():
+    """`TMIN` is the only export bound Micro-Cap cannot resolve in batch.
+
+    Measured: every shipped circuit using TSTART exports fine, every one using
+    TMIN exports nothing, and the swap fixes the latter without touching the
+    former.
+    """
+    patched, changed = cir.resolve_numeric_range(SAMPLE, "transient")
+    assert changed
+    assert 'Num Out Low="TSTART"' in patched
+    assert "TMIN" not in patched
+
+
+def test_tmax_is_left_alone():
+    """TMAX resolves. Replacing it with the circuit's own TMax broke every
+    circuit whose limits are an expression, e.g. `TMax=10/f0`.
+    """
+    patched, _ = cir.resolve_numeric_range(SAMPLE, "transient")
+    assert 'Num Out High="TMAX"' in patched
+
+
+def test_expression_limits_are_irrelevant_now():
+    """The fix does not read [Limits] at all, so an expression there is fine."""
+    text = SAMPLE.replace("TMax=8", "TMax=10/f0")
+    patched, changed = cir.resolve_numeric_range(text, "transient")
+    assert changed and 'Num Out High="TMAX"' in patched
+
+
+def test_a_circuit_already_using_tstart_is_untouched():
+    text = SAMPLE.replace('Num Out Low="TMIN"', 'Num Out Low="TSTART"')
+    patched, changed = cir.resolve_numeric_range(text, "transient")
+    assert not changed and patched == text
+
+
+def test_ac_bounds_resolve_on_their_own():
+    """FMIN/FMAX are fine in batch — only TMIN is broken."""
+    patched, changed = cir.resolve_numeric_range(SAMPLE, "ac")
+    assert not changed
+    assert 'Num Out Low="FMIN"' in patched

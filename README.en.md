@@ -144,9 +144,12 @@ uv run python eval/harness.py --all --window   # full sweep with a progress wind
 uv run python eval/harness.py --domain Filters # a single domain
 ```
 
-Current result: 728 of 866 runs the circuit is able to answer. Most remaining failures
-are not on the driver's side — circuits with no ground, broken node references,
+Current result: 741 of 866 runs the circuit is able to answer (86%). Most remaining
+failures are not on the driver's side — circuits with no ground, broken node references,
 unconfigured DC blocks.
+
+`--compare <previous.jsonl>` diffs the result per circuit: the headline pass rate hides
+trades where one change fixes some circuits and breaks others.
 
 ## Documentation
 

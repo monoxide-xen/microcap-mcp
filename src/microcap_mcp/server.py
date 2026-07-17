@@ -28,6 +28,51 @@ def _driver() -> MicroCap:
     return _mc
 
 
+def _solver_report(s) -> dict[str, Any]:
+    """How hard Micro-Cap had to work, phrased so it can be acted on.
+
+    The raw rejection count is close to useless on its own: measured across the
+    shipped library, the "worst" circuit rejects 129,272 solutions — but it also
+    accepts 443,236, so it rejected 22.6% of its attempts, in line with every
+    other switching converter. Ranking by the raw count just ranks by run
+    length.
+
+    The ratio is a signature of *topology*, not of trouble. Measured:
+    switching converters land at 18-23%, an astable multivibrator at 17%, and
+    linear circuits at 0-5%. Backing the timestep off at every switching edge
+    is the solver working correctly, not struggling. So this reports context
+    and leaves the judgement to the caller rather than crying wolf on 27% of
+    all runs — including 100% of the Off-Line Converters, where it is normal.
+    """
+    accepted = s.solutions or 0
+    rejected = s.rejected or 0
+    attempts = accepted + rejected
+    report: dict[str, Any] = {
+        "nodes": s.nodes,
+        "iterations": s.iterations,
+        "accepted_solutions": accepted,
+        "rejected_solutions": rejected,
+        "run_time_s": s.run_time,
+    }
+    if attempts:
+        report["rejected_fraction"] = round(rejected / attempts, 3)
+    if accepted:
+        # Newton-Raphson passes per accepted point. 2 is an easy linear
+        # circuit; 4-5 is a hard switching one. Runaway values would mean the
+        # solve is genuinely fighting, though nothing in the shipped library
+        # goes above ~5.4.
+        report["iterations_per_solution"] = round((s.iterations or 0) / accepted, 2)
+    if attempts and rejected / attempts > 0.15:
+        report["note"] = (
+            f"{rejected / attempts:.0%} of timesteps were rejected and retried. "
+            f"That is expected for circuits with fast switching edges — converters, "
+            f"multivibrators — where the solver cuts the step at each transition. "
+            f"It is not by itself a reason to distrust the waveform; on a purely "
+            f"linear circuit, though, it would be worth investigating."
+        )
+    return report
+
+
 def _json_safe(x: float) -> float | None:
     """NaN marks a value Micro-Cap reported as NA. JSON has no NaN, so it
     travels as null rather than as invalid JSON or a silent zero."""
@@ -54,21 +99,7 @@ def _summarise(result, max_points: int) -> dict[str, Any]:
         "limits": result.numeric.limits,
     }
     if result.log.stats:
-        s = result.log.stats[0]
-        out["solver"] = {
-            "nodes": s.nodes,
-            "iterations": s.iterations,
-            "rejected_solutions": s.rejected,
-            "run_time_s": s.run_time,
-        }
-        # Rejected solutions are the honest early warning for a stiff or
-        # badly conditioned circuit, even when the run "succeeded".
-        if s.rejected:
-            out["warning"] = (
-                f"{s.rejected} rejected solutions: the solver struggled. Treat "
-                f"the waveform with suspicion and consider tightening RELTOL, "
-                f"adding .NODESET, or checking for a floating node."
-            )
+        out["solver"] = _solver_report(result.log.stats[0])
     if result.log.errors:
         out["messages"] = result.log.errors
     return out
