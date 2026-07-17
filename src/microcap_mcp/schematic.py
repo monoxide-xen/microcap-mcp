@@ -169,3 +169,136 @@ def _default_limits(analysis: str) -> str:
     if analysis == "Transient":
         return "TRange=1m\nNPts=100\nTemp=27"
     return "DCRange=5,0,.1\nNPts=100\nTemp=27"
+
+
+# --------------------------------------------------------------------------
+# op-amp amplifiers
+# --------------------------------------------------------------------------
+#
+# Op-amps are macro (subcircuit) components, and instantiating one needs more
+# than the passive schematic structure. Cracked by bisecting a working shipped
+# circuit down to its minimum; the three keys, none in the manual:
+#
+#   * a [Page] section — minimally `[Page]\nName=Page 1`;
+#   * the model in a [Text Area] tagged with the page: `Section=0\nPage=1`;
+#   * section order — Main, Circuit, drawing, Page, Text Area, Limits, WaveForm
+#     (passives tolerate any order; the op-amp does not).
+#
+# The op-amp pin geometry is from Standard.cmp, grid units. A near-ideal
+# LEVEL=1 model needs no external supply rails.
+
+OPAMP_PINS = {"plus": (0, 0), "minus": (0, 6), "output": (9, 3)}
+OPAMP_MODEL = ".MODEL O1 OPA (LEVEL=1 A=1e6 ROUTAC=50 ROUTDC=75)"
+
+
+def _assemble(drawing: list[str], analysis: str, limits: str | None, output_node: str,
+              model: str | None) -> str:
+    """Wrap a drawing in the canonical section order an op-amp circuit needs."""
+    xexp = "F" if analysis == "AC" else "T"
+    header = (
+        "[Main]\nFileType=CIR\nVersion=12.00\nProgram=Micro-Cap\n"
+        "Component Version=10.00\nShape Version=11.00\n\n"
+        "[Circuit]\nShow Grid Text=True\n\n"
+    )
+    page = "[Page]\nName=Page 1\n\n"
+    text = f"[Text Area]\nSection=0\nPage=1\nText={model}\n\n" if model else ""
+    lims = f"[Limits]\nAnalysis={analysis}\n{limits or _default_limits(analysis)}\n\n"
+    wave = (
+        f"[WaveForm]\nAnalysis={analysis}\nPlt=1\nAliasID=1\n"
+        f"XExp={xexp}\nYExp=V({output_node})\nOptions=OUTPUT,LINEARY\nEnable=Enable\n\n"
+    )
+    return header + "\n".join(drawing) + "\n\n" + page + text + lims + wave
+
+
+def opamp_amplifier(
+    gain: float,
+    kind: str = "inverting",
+    rin: str = "1K",
+    source: str = "DC=0 AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUT",
+) -> str:
+    """An op-amp amplifier with a near-ideal LEVEL=1 op-amp.
+
+    ``inverting``: gain ``-Rf/Rin``; ``Rf = gain * Rin``.
+    ``non-inverting``: gain ``1 + Rf/Rg``; ``Rf = (gain-1) * Rg``, Rg = ``rin``.
+
+    Args:
+        gain: desired magnitude of the closed-loop gain (>0).
+        kind: ``inverting`` or ``non-inverting``.
+        rin: the input/ground resistor value (sets Rf from the gain).
+        source, analysis, limits, output_node: as for ``series_circuit``.
+    """
+    if kind not in ("inverting", "non-inverting"):
+        raise SchematicError("kind must be 'inverting' or 'non-inverting'")
+    if gain <= 0:
+        raise SchematicError("gain must be positive")
+
+    def ohms(text: str) -> float:
+        from .parser import to_float
+        return to_float(text)
+
+    rin_val = ohms(rin)
+    if kind == "inverting":
+        rf = _fmt_ohms(gain * rin_val)
+    else:
+        rf = _fmt_ohms((gain - 1) * rin_val) if gain > 1 else "0"
+
+    ox, oy = 320, 224
+    def pin(n: str) -> tuple[int, int]:
+        gx, gy = OPAMP_PINS[n]
+        return ox + gx * GRID, oy + gy * GRID
+
+    plus, minus, out = pin("plus"), pin("minus"), pin("output")
+    d = [_comp("Opamp", ox, oy, [("PART", "O1"), ("MODEL", "O1")])]
+    sx, sy = 96, minus[1]
+    out_x = out[0] + 40
+
+    # source and its ground
+    d.append(_comp(SOURCE.shape, sx, sy, [("PART", "V1"), (SOURCE.value_attr, source)]))
+    d.append(_wire(sx, sy, sx, sy + 24))
+    d.append(_comp("Ground", sx, sy + 24, []))
+
+    if kind == "inverting":
+        # +in to ground; source -> Rin -> summing node (-in); Rf feedback
+        d.append(_wire(plus[0], plus[1], plus[0] - 32, plus[1]))
+        d.append(_comp("Ground", plus[0] - 32, plus[1], []))
+        rinx = sx + 72
+        d.append(_wire(sx + 48, sy, rinx, sy))
+        d.append(_comp("Resistor", rinx, sy, [("PART", "Rin"), ("RESISTANCE", rin)]))
+        d.append(_wire(rinx + 48, sy, minus[0], minus[1]))
+    else:
+        # +in from source; Rg from -in to ground; Rf feedback
+        d.append(_wire(sx + 48, sy, plus[0], plus[1]))         # source -> +in (sy == plus? use plus row)
+        d.append(_wire(sx + 48, sy, sx + 48, plus[1]))
+        d.append(_wire(sx + 48, plus[1], plus[0], plus[1]))
+        rgx = minus[0] - 72
+        d.append(_wire(minus[0], minus[1], rgx + 48, minus[1]))
+        d.append(_comp("Resistor", rgx, minus[1], [("PART", "Rg"), ("RESISTANCE", rin)]))
+        d.append(_wire(rgx, minus[1], rgx, minus[1] + 24))
+        d.append(_comp("Ground", rgx, minus[1] + 24, []))
+
+    # output node + feedback Rf from output back to summing node
+    d.append(_wire(*out, out_x, out[1]))
+    d.append(_label(output_node, out_x, out[1]))
+    fy = oy - 48
+    rfx = minus[0] + 8
+    d.append(_wire(out_x, out[1], out_x, fy))
+    d.append(_wire(out_x, fy, rfx + 48, fy))
+    d.append(_comp("Resistor", rfx, fy, [("PART", "Rf"), ("RESISTANCE", rf)]))
+    d.append(_wire(rfx, fy, minus[0], fy))
+    d.append(_wire(minus[0], fy, minus[0], minus[1]))
+
+    return _assemble(d, analysis, limits, output_node, OPAMP_MODEL)
+
+
+def _fmt_ohms(value: float) -> str:
+    """Format a resistance in Micro-Cap's engineering style (e.g. 10K)."""
+    if value == 0:
+        return "0"
+    for suffix, scale in (("MEG", 1e6), ("K", 1e3), ("", 1.0)):
+        if abs(value) >= scale:
+            v = value / scale
+            return (f"{v:g}{suffix}")
+    return f"{value:g}"
