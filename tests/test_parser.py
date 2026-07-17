@@ -295,3 +295,79 @@ def test_unknown_column_names_the_ones_it_has():
     t = DataTable(columns=["T", "V(OUT)"], units=["Secs", "V"], rows=[[0.0, 1.0]])
     with pytest.raises(KeyError, match="V\\(OUT\\)"):
         t.column("V(NOPE)")
+
+
+# --------------------------------------------------------------------------
+# complex output (AC / S-parameters / Smith)
+# --------------------------------------------------------------------------
+
+import cmath  # noqa: E402
+import math   # noqa: E402
+
+from microcap_mcp.parser import parse_row, to_complex  # noqa: E402
+
+
+def test_rectangular_complex():
+    z = to_complex("4.72-10.43i")
+    assert z.real == pytest.approx(4.72)
+    assert z.imag == pytest.approx(-10.43)
+    assert to_complex("2.45-1.44i") == pytest.approx(complex(2.45, -1.44))
+
+
+def test_rectangular_with_si_suffix():
+    z = to_complex("5.66m-1.2ki")
+    assert z.real == pytest.approx(5.66e-3)
+    assert z.imag == pytest.approx(-1200.0)
+
+
+def test_polar_pair_is_one_column():
+    """`38.34 170.00°` is magnitude and angle — two tokens, one value."""
+    row = parse_row(["10.00MEG", "38.34", "170.00°"])
+    assert len(row) == 2, "the polar pair must collapse to a single cell"
+    freq, s = row
+    assert freq == pytest.approx(10e6)
+    assert abs(s) == pytest.approx(38.34)
+    assert math.degrees(cmath.phase(s)) == pytest.approx(170.0)
+
+
+def test_real_and_rect_and_polar_in_one_row():
+    """The exact shape smith emits: 5 columns, 7 whitespace tokens."""
+    tokens = ["10.00MEG", "4.72-10.43i", "2.45-1.44i", "38.34", "170.00°", "5.66m", "81.59°"]
+    row = parse_row(tokens)
+    assert len(row) == 5
+    assert row[0] == pytest.approx(10e6)                 # F, real
+    assert row[1] == pytest.approx(complex(4.72, -10.43))  # S22, rectangular
+    assert abs(row[3]) == pytest.approx(38.34)            # S21, polar magnitude
+    assert abs(row[4]) == pytest.approx(5.66e-3)          # S12, polar mag with suffix
+
+
+def test_smith_table_parses_end_to_end():
+    text = (
+        header("AC", "smith")
+        + "Interpolated Waveform Values\n"
+        "============================\n"
+        "           F               S22               S11               S21              S12\n"
+        "        (Hz)                                                                       \n"
+        "    10.00MEG       4.72-10.43i        2.45-1.44i     38.34 170.00°     5.66m 81.59°\n"
+        "    14.00MEG        3.05-7.87i        1.97-1.58i     37.84 166.12°     7.82m 78.65°\n"
+    )
+    table = parse(text).table
+    assert table.columns == ["F", "S22", "S11", "S21", "S12"]
+    assert len(table.rows) == 2
+    assert table.column("S22")[0] == pytest.approx(complex(4.72, -10.43))
+    assert abs(table.column("S21")[0]) == pytest.approx(38.34)
+
+
+def test_a_plain_real_table_is_unaffected():
+    """The common case must not regress: no ° or i means no merging."""
+    text = header("AC", "RC") + (
+        "Interpolated Waveform Values\n"
+        "============================\n"
+        "            F   V(OUT)\n"
+        "         (Hz)      (V)\n"
+        "    1000.0000  0.70710\n"
+        "   10000.0000  0.09950\n"
+    )
+    table = parse(text).table
+    assert table.column("V(OUT)") == [pytest.approx(0.70710), pytest.approx(0.09950)]
+    assert all(isinstance(v, float) for row in table.rows for v in row)

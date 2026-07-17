@@ -92,6 +92,78 @@ def to_float(token: str) -> float:
     raise ValueError(f"not a Micro-Cap number: {token!r}")
 
 
+# AC / S-parameter tables print complex values, in two forms that can appear
+# side by side in one row:
+#   rectangular   4.72-10.43i          one whitespace token
+#   polar         38.34 170.00°        TWO tokens: magnitude, then angle°
+# so a complex row has more whitespace tokens than columns. An angle token
+# (ending °) belongs to the magnitude immediately before it. A number here may
+# still carry an SI suffix (5.66m 81.59°), so the pieces go through to_float.
+_UNSIGNED = r"(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?:meg|[fpnumkgt])?"
+_NUM = rf"[-+]?{_UNSIGNED}"
+# rectangular: real part, then an explicitly-signed imaginary part, then i.
+_RECT = re.compile(rf"^({_NUM})([-+]{_UNSIGNED})i$", re.IGNORECASE)
+_ANGLE = re.compile(rf"^({_NUM})°$", re.IGNORECASE)
+
+
+def to_complex(token: str) -> complex:
+    """Parse a rectangular complex token like ``4.72-10.43i``."""
+    m = _RECT.match(token)
+    if not m:
+        raise ValueError(f"not a rectangular complex number: {token!r}")
+    return complex(to_float(m.group(1)), to_float(m.group(2)))
+
+
+def _merge_row(tokens: list[str]) -> list[object]:
+    """Group a data row's whitespace tokens into one entry per column.
+
+    A polar value is two tokens (``mag`` then ``angle°``); everything else is
+    one. Returns a list whose length is the true column count: strings for
+    single-token cells, ``(mag, angle)`` tuples for polar ones.
+    """
+    cells: list[object] = []
+    for tok in tokens:
+        if tok.endswith("°") and cells and isinstance(cells[-1], str):
+            cells[-1] = (cells[-1], tok)
+        else:
+            cells.append(tok)
+    return cells
+
+
+def _cell_value(cell: object) -> float | complex:
+    """Turn one merged cell into a number: real, rectangular or polar."""
+    if isinstance(cell, tuple):
+        import cmath
+        import math
+
+        mag, angle = cell
+        deg = to_float(_ANGLE.match(angle).group(1))
+        return cmath.rect(to_float(mag), math.radians(deg))
+    if cell.endswith("i") and _RECT.match(cell):
+        return to_complex(cell)
+    return to_float(cell)
+
+
+def parse_row(tokens: list[str]) -> list[float | complex]:
+    """Parse a full data row, complex forms included."""
+    return [_cell_value(c) for c in _merge_row(tokens)]
+
+
+def _is_cell(token: str) -> bool:
+    """A token that can be part of a data row: number, complex, or angle."""
+    if _ANGLE.match(token) or _RECT.match(token):
+        return True
+    return _is_number(token)
+
+
+def _cell_ok(cell: object) -> bool:
+    """Is one merged cell readable? (str number/complex, or a polar tuple.)"""
+    if isinstance(cell, tuple):
+        mag, angle = cell
+        return _is_number(mag) and bool(_ANGLE.match(angle))
+    return _is_cell(cell)
+
+
 def _is_number(token: str) -> bool:
     """Can this cell hold a value? Lenient: NA and logic states count."""
     try:
@@ -122,9 +194,9 @@ class DataTable:
 
     columns: list[str] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
-    rows: list[list[float]] = field(default_factory=list)
+    rows: list[list[float | complex]] = field(default_factory=list)
 
-    def column(self, name: str) -> list[float]:
+    def column(self, name: str) -> list[float | complex]:
         """Return one column by name, e.g. ``V(1)``. Case-insensitive."""
         try:
             i = [c.lower() for c in self.columns].index(name.lower())
@@ -241,13 +313,15 @@ def parse(text: str) -> NumericOutput:
             title = lines[i - 1].strip() if i else ""
             header_line, units_line = lines[i + 1], lines[i + 2]
             columns = header_line.split()
-            first_row = lines[i + 3].split()
+            # Merge polar pairs before counting: a complex row has more
+            # whitespace tokens than columns (mag and angle° are two tokens).
+            first_cells = _merge_row(lines[i + 3].split())
             head_ok = (
                 _WAVEFORM_TITLE.search(title)
                 and columns
                 and not _is_strict_number(columns[0])
-                and len(first_row) == len(columns)
-                and all(_is_number(p) for p in first_row)
+                and len(first_cells) == len(columns)
+                and all(_cell_ok(c) for c in first_cells)
             )
             if head_ok:
                 table = DataTable(
@@ -262,20 +336,21 @@ def parse(text: str) -> NumericOutput:
                         if table.rows:
                             break
                         continue
-                    if len(parts) != len(columns) or not all(_is_number(p) for p in parts):
+                    cells = _merge_row(parts)
+                    if len(cells) != len(columns) or not all(_cell_ok(c) for c in cells):
                         # Normally this is simply the end of the table. But a
                         # line that still looks like data — right shape, some
-                        # numbers — means we failed to read a row and are about
-                        # to hand back a truncated table as if it were whole.
-                        # Silent truncation is worse than an error, so say so.
-                        if len(parts) == len(columns) and any(_is_number(p) for p in parts):
-                            bad = next(p for p in parts if not _is_number(p))
+                        # readable cells — means we failed to read a row and are
+                        # about to hand back a truncated table as if it were
+                        # whole. Silent truncation is worse than an error.
+                        if len(cells) == len(columns) and any(_cell_ok(c) for c in cells):
+                            bad = next(c for c in cells if not _cell_ok(c))
                             out.messages.append(
                                 f"table truncated at row {len(table.rows) + 1}: "
                                 f"cannot read value {bad!r}"
                             )
                         break
-                    table.rows.append([to_float(p) for p in parts])
+                    table.rows.append([_cell_value(c) for c in cells])
                     i += 1
                 if table.rows:
                     out.runs.append(Run(temperature=temperature, table=table))

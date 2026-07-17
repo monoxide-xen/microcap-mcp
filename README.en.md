@@ -90,6 +90,8 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `search_examples` | search the reference circuits |
 | `get_example` | fetch a reference circuit's source |
 
+Complex output (AC, S-parameters, Smith charts) is returned as `{"re", "im"}`.
+
 Supported analyses: `transient`, `ac`, `dc`, `harmonic_distortion`,
 `intermodulation_distortion`, `stability`.
 
@@ -135,7 +137,7 @@ added to the response.
 uv run pytest
 ```
 
-74 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
+80 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
 text processing. Each test pins a real bug against output Micro-Cap actually produced.
 
 ## Corpus evaluation
@@ -147,7 +149,7 @@ uv run python eval/harness.py --all --window   # full sweep with a progress wind
 uv run python eval/harness.py --domain Filters # a single domain
 ```
 
-Current result: 760 of 866 runs the circuit is able to answer (88%). Most remaining
+Current result: 762 of 866 runs the circuit is able to answer (88%). Most remaining
 failures are not on the driver's side — circuits with no ground, broken node references,
 unconfigured DC blocks.
 
