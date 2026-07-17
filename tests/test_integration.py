@@ -7,7 +7,7 @@ are the manual checks made throughout development, made permanent.
 Skipped automatically where Micro-Cap is not installed (so CI stays green), so
 run them locally with MICROCAP_HOME set:
 
-    MICROCAP_HOME=D:/Games/MC12 uv run pytest tests/test_integration.py
+    MICROCAP_HOME=C:/MC12 uv run pytest tests/test_integration.py
 """
 
 from __future__ import annotations

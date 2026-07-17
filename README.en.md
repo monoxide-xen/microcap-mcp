@@ -148,7 +148,7 @@ integration tests that drive the whole stack against physics with a known answer
 Micro-Cap installed:
 
 ```bash
-MICROCAP_HOME=D:/Games/MC12 uv run pytest tests/test_integration.py
+MICROCAP_HOME=C:/MC12 uv run pytest tests/test_integration.py
 ```
 
 Without Micro-Cap the integration tests skip, so CI stays green.
