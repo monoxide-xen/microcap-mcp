@@ -143,8 +143,15 @@ added to the response.
 uv run pytest
 ```
 
-80 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
-text processing. Each test pins a real bug against output Micro-Cap actually produced.
+85 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 8
+integration tests that drive the whole stack against physics with a known answer and need
+Micro-Cap installed:
+
+```bash
+MICROCAP_HOME=D:/Games/MC12 uv run pytest tests/test_integration.py
+```
+
+Without Micro-Cap the integration tests skip, so CI stays green.
 
 ## Corpus evaluation
 
