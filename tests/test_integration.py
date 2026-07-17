@@ -30,6 +30,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 # Import the server tools the way an MCP client calls them.
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
+    generate_schematic,
     get_example,
     search_examples,
     simulate,
@@ -144,6 +145,29 @@ def test_adapt_a_reference_schematic():
 
     col = base["columns"][1]
     assert base["data"][col] != edited["data"][col], "the edit must reach the result"
+
+
+def test_generated_rc_lowpass_matches_theory():
+    """The generator draws a schematic from a component model; run it and it
+    must be electrically the circuit asked for — RC low-pass, -3 dB at cutoff.
+    This is what a guessed layout could not do (it gave V(OUT)=0).
+    """
+    g = generate_schematic(["R=1K", "C=159.155N"], source="DC=0 AC=1", analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=200,
+                           max_points=200)  # noqa: E501
+    assert "error" not in r, r
+    f, v = r["data"]["F"], r["data"]["V(OUT)"]
+    i = min(range(len(f)), key=lambda k: abs(f[k] - 1000))
+    assert v[i] == pytest.approx(0.7071, abs=0.03), "must roll off -3 dB at the cutoff"
+    assert v[0] == pytest.approx(1.0, abs=0.05), "DC passes through (low-pass)"
+
+
+def test_generated_divider_halves():
+    """Two equal resistors: a flat 0.5 divider, at any frequency."""
+    g = generate_schematic(["R=1K", "R=1K"], analysis="AC")
+    r = simulate_schematic(g["schematic"], analysis="ac", points=50)
+    assert r["data"]["V(OUT)"][0] == pytest.approx(0.5, abs=0.02)
 
 
 def test_bad_netlist_returns_error_not_crash():

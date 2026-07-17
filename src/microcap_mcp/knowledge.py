@@ -83,6 +83,9 @@ text, then run the edited copy — `simulate` for a plain SPICE netlist, or
 `simulate_schematic` for the coordinate-carrying `.CIR` format that
 `get_example` returns for schematics.
 
+To draw a simple circuit from nothing — a source driving R/C/L in series —
+`generate_schematic` returns a `.CIR` you can run or hand to the user.
+
 ## Pick the analysis that answers the question
 
 | Question | Analysis |
