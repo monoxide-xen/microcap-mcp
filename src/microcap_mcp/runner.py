@@ -651,52 +651,63 @@ class MicroCap:
         # MC's log names each run by its file, so stats map back by stem.
         stats_by_circuit = {s.circuit.upper(): s for s in log.stats}
 
-        # A circuit can produce no file while the batch as a whole succeeds and
-        # the log names no fault for it — measured: ~19 of 28 such "silent"
-        # cases run fine on their own, so the silence is an interaction with
-        # other circuits in the batch, not a property of the circuit. Rather
-        # than root-cause a closed, abandoned program, re-run the silent ones
-        # solo to get their true verdict. Collected here, retried below.
-        silent: list[Job] = []
+        # A circuit can fail inside a batch while running fine on its own: no
+        # file at all, or a file with no waveform table, and the batch log names
+        # no fault for it. Measured, both happen and both are batch interactions
+        # rather than properties of the circuit — ~19 of 28 "silent" cases and
+        # every one of the sampled "no table" cases pass in isolation.
+        #
+        # The honest signal is whether Micro-Cap blamed *this* circuit: if the
+        # log has an error line mentioning its file, the failure is real; if it
+        # is quiet about the circuit, the batch just did not give us an answer.
+        # The quiet ones are re-run solo below to get a true verdict; rooting
+        # out the cause inside a closed, abandoned program is not worth it.
+        retry_solo: list[Job] = []
 
         for job, stem, ext in prepared:
+            stem_blamed = any(stem.upper() in e.upper() for e in log.errors)
             path = self._find(f"{stem}.{ext}")
+
+            outcome: Result | Exception
             if path is None:
-                mc_said = log.why(stem)
-                if _retry_silent and "no error text" in mc_said:
-                    silent.append(job)
-                    self.purge(stem)
-                    continue
-                results[job.key] = MicroCapError(f"no {ext} produced. Micro-Cap said: {mc_said}")
+                outcome = MicroCapError(f"no {ext} produced. Micro-Cap said: {log.why(stem)}")
+            else:
+                try:
+                    one = BatchLog(errors=[e for e in log.errors if stem.upper() in e.upper()])
+                    if s := stats_by_circuit.get(f"{stem}.{ext[0]}CT".upper()):
+                        one.stats = [s]
+                    else:
+                        for key, s in stats_by_circuit.items():
+                            if key.startswith(stem.upper()):
+                                one.stats = [s]
+                                break
+                    outcome = Result(
+                        name=stem, analysis=job.analysis, numeric=parse_file(path), log=one
+                    )
+                except Exception as e:  # noqa: BLE001
+                    outcome = e
+
+            if not self.keep_files:
                 self.purge(stem)
-                if on_done:
-                    on_done(job.key)
+
+            # Retry only the no-*file* case. Empty-table results were checked
+            # too — but every sampled one (Smith/S-parameter complex output,
+            # operating-point-only circuits) fails identically in isolation, so
+            # they are the circuit's own output, not a batch interaction.
+            # Retrying them would add launches for no gain; measured +0.
+            if _retry_silent and isinstance(outcome, Exception) and not stem_blamed:
+                retry_solo.append(job)
                 continue
-            try:
-                one = BatchLog(errors=[e for e in log.errors if stem.upper() in e.upper()])
-                if s := stats_by_circuit.get(f"{stem}.{ext[0]}CT".upper()):
-                    one.stats = [s]
-                else:
-                    for key, s in stats_by_circuit.items():
-                        if key.startswith(stem.upper()):
-                            one.stats = [s]
-                            break
-                results[job.key] = Result(
-                    name=stem, analysis=job.analysis, numeric=parse_file(path), log=one
-                )
-            except Exception as e:  # noqa: BLE001
-                results[job.key] = e
-            finally:
-                if not self.keep_files:
-                    self.purge(stem)
-                if on_done:
-                    on_done(job.key)
+
+            results[job.key] = outcome
+            if on_done:
+                on_done(job.key)
 
         if not self.keep_files:
             self.purge(batch_stem)
 
-        for job in silent:
-            # One circuit per launch, and _retry_silent off so a still-silent
+        for job in retry_solo:
+            # One circuit per launch, and _retry_silent off so a still-failing
             # result is recorded as-is rather than looping.
             solo = self.run_many([job], hide=hide, _retry_silent=False)
             results[job.key] = solo[job.key]
