@@ -35,12 +35,6 @@ cd microcap-mcp
 uv sync
 ```
 
-Драйвер сам ищет типовые пути установки Micro-Cap. Если не нашёл:
-
-```bash
-export MICROCAP_HOME="D:/Games/MC12"
-```
-
 Подключение к MCP-клиенту:
 
 ```json
@@ -48,10 +42,38 @@ export MICROCAP_HOME="D:/Games/MC12"
   "mcpServers": {
     "microcap": {
       "command": "uv",
-      "args": ["--directory", "/path/to/microcap-mcp", "run", "microcap-mcp"]
+      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"]
     }
   }
 }
+```
+
+### Где лежит Micro-Cap
+
+Драйвер сам просматривает типовые места (`MC12`, `Micro-Cap 12` в корне дисков и в
+`Program Files`) и берёт `mc12_64.exe` либо `mc12.exe`. Но Micro-Cap не ставится в
+`Program Files` — он пишет в собственную папку и требует прав на запись, — поэтому у
+многих он лежит где угодно.
+
+Если автопоиск не справился, укажите папку с исполняемым файлом через `MICROCAP_HOME` —
+она используется как есть:
+
+```jsonc
+{
+  "mcpServers": {
+    "microcap": {
+      "command": "uv",
+      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"],
+      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // ← ваш путь
+    }
+  }
+}
+```
+
+Или переменной окружения — PowerShell:
+
+```powershell
+$env:MICROCAP_HOME = "E:\Tools\MC12"
 ```
 
 ## Инструменты
