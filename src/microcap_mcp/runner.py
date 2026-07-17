@@ -58,17 +58,69 @@ class MicroCapError(RuntimeError):
     """A run failed. Carries MC's own diagnostics where available."""
 
 
+# Micro-Cap's own ReadMe tells you not to install it under Program Files —
+# it writes to its own folder and needs the directory writable — so in practice
+# it ends up anywhere at all. These are guesses for convenience only; anyone
+# whose install is elsewhere sets MICROCAP_HOME, which always wins.
+_FOLDER_NAMES = ("MC12", "Micro-Cap 12", "MicroCap12", "Micro-Cap")
+
+# 64-bit first, but a 32-bit-only install is perfectly normal.
+EXE_NAMES = ("mc12_64.exe", "mc12.exe")
+
+
+def _executable_in(folder: Path) -> Path | None:
+    for name in EXE_NAMES:
+        exe = folder / name
+        if exe.is_file():
+            return exe
+    return None
+
+
+def _likely_roots() -> "list[Path]":
+    """Plausible parent directories, across whichever drives exist."""
+    roots: list[Path] = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        drive = Path(f"{letter}:\\")
+        if not drive.exists():
+            continue
+        roots.append(drive)
+        for sub in ("Program Files", "Program Files (x86)", "Programs", "Apps"):
+            p = drive / sub
+            if p.is_dir():
+                roots.append(p)
+                spectrum = p / "Spectrum Software"
+                if spectrum.is_dir():
+                    roots.append(spectrum)
+    return roots
+
+
 def find_install(explicit: str | os.PathLike | None = None) -> Path:
-    """Locate the MC12 installation directory."""
-    candidates = [explicit] if explicit else []
-    if env := os.environ.get("MICROCAP_HOME"):
-        candidates.append(env)
-    candidates += [r"D:\Games\MC12", r"C:\MC12", r"C:\Program Files\MC12"]
-    for c in candidates:
-        if c and (Path(c) / "mc12_64.exe").is_file():
-            return Path(c)
+    """Locate the Micro-Cap 12 installation directory.
+
+    Order: the explicit argument, then ``MICROCAP_HOME``, then a scan of common
+    folder names on every drive. Micro-Cap can live anywhere, so the scan is a
+    convenience, not a contract — set ``MICROCAP_HOME`` and it is used verbatim.
+    """
+    for candidate in (explicit, os.environ.get("MICROCAP_HOME")):
+        if not candidate:
+            continue
+        folder = Path(candidate)
+        if _executable_in(folder):
+            return folder
+        raise MicroCapError(
+            f"No Micro-Cap executable ({' or '.join(EXE_NAMES)}) in {folder}. "
+            f"MICROCAP_HOME must point at the folder that contains it."
+        )
+
+    for root in _likely_roots():
+        for name in _FOLDER_NAMES:
+            folder = root / name
+            if folder.is_dir() and _executable_in(folder):
+                return folder
+
     raise MicroCapError(
-        "Micro-Cap 12 not found. Set MICROCAP_HOME to the folder holding mc12_64.exe."
+        "Micro-Cap 12 not found. Set MICROCAP_HOME to the folder holding "
+        f"{EXE_NAMES[0]} (or {EXE_NAMES[1]}), e.g. C:\\MC12."
     )
 
 
@@ -219,7 +271,10 @@ class MicroCap:
         window_mode: str = "hide",
     ):
         self.install = find_install(install)
-        self.exe = self.install / "mc12_64.exe"
+        exe = _executable_in(self.install)
+        if exe is None:  # find_install guarantees this, but be explicit
+            raise MicroCapError(f"no Micro-Cap executable in {self.install}")
+        self.exe = exe
         self.data = self.install / "DATA"
         self.keep_files = keep_files
         self.window_mode = window_mode

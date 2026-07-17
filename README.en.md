@@ -35,12 +35,6 @@ cd microcap-mcp
 uv sync
 ```
 
-The driver auto-detects common install paths. Otherwise:
-
-```bash
-export MICROCAP_HOME="D:/Games/MC12"
-```
-
 Register it with your MCP client:
 
 ```json
@@ -48,10 +42,38 @@ Register it with your MCP client:
   "mcpServers": {
     "microcap": {
       "command": "uv",
-      "args": ["--directory", "/path/to/microcap-mcp", "run", "microcap-mcp"]
+      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"]
     }
   }
 }
+```
+
+### Where Micro-Cap lives
+
+The driver scans the usual places (`MC12`, `Micro-Cap 12` at drive roots and under
+`Program Files`) and accepts either `mc12_64.exe` or `mc12.exe`. But Micro-Cap is not
+installed under `Program Files` — it writes to its own folder and needs it writable — so
+in practice it ends up anywhere.
+
+If the scan misses it, point `MICROCAP_HOME` at the folder containing the executable; it
+is used verbatim:
+
+```jsonc
+{
+  "mcpServers": {
+    "microcap": {
+      "command": "uv",
+      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"],
+      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // ← your path
+    }
+  }
+}
+```
+
+Or as an environment variable — PowerShell:
+
+```powershell
+$env:MICROCAP_HOME = "E:\Tools\MC12"
 ```
 
 ## Tools
