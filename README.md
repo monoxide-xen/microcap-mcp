@@ -1,76 +1,98 @@
+<div align="center">
+
 # microcap-mcp
 
-An MCP server that lets an LLM agent design and simulate analog circuits in
-**Micro-Cap 12** — the SPICE simulator Spectrum Software released as freeware
-in 2019 when they closed.
+**MCP-сервер для симулятора схем Micro-Cap 12**
 
-Ask an agent for a filter's frequency response and it writes the netlist, runs
-it headless, and reads the numbers back:
+Позволяет LLM-агенту проектировать и считать аналоговые схемы: писать нетлисты,
+гонять анализы headless и получать числа обратно.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6.svg?logo=windows&logoColor=white)](#установка)
+[![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![Corpus: 84%](https://img.shields.io/badge/Корпус-84%25%20отвечаемых-success.svg)](#насколько-это-работает)
+
+**Русский** · [English](README.en.md)
+
+</div>
+
+---
+
+Micro-Cap 12 — SPICE-симулятор Spectrum Software, ставший бесплатным в 2019-м, когда
+компания закрылась. Программа брошена: ни поддержки, ни обновлений, ни сайта.
+
+Спрашиваешь у агента АЧХ фильтра — он пишет нетлист, гоняет его headless и читает числа:
 
 ```
-freq        |V(OUT)|    theory 1/sqrt(1+(f/1k)^2)
-1000.0 Hz   0.70710     0.70711
+    частота     |V(OUT)|     теория 1/sqrt(1+(f/1k)^2)
+   1000.0 Гц     0.70710     0.70711
 ```
 
-## Why this is not a reverse-engineering project
+---
 
-The obvious plan — reverse the binary, inject an automation layer — turned out
-to be unnecessary. Micro-Cap ships a **documented batch mode**:
+## Почему это не проект про реверс-инжиниринг
+
+Очевидный план — отреверсить бинарь и вшить в него слой автоматизации — оказался
+**не нужен**. У Micro-Cap есть **документированный batch-режим**:
 
 ```
 MC12 @BATCH.BAT
 ```
 
-with per-line syntax:
+со строчным синтаксисом:
 
 ```
-cname [/DEF "x val"] [/NOF "fn"] [analysis] [image commands]
+cname [/DEF "x val"] [/NOF "fn"] [анализ] [команды экспорта картинок]
 ```
 
-That covers every analysis, parametric runs, numeric export and image export. A
-three-point sweep runs headless in ~4 seconds and the process exits on its own.
-No GUI automation, no injection, no patched binary.
+Этого хватает на всё: любые анализы, параметрические прогоны, численный вывод, экспорт
+изображений. Свип из трёх точек отрабатывает headless за ~4 секунды, процесс закрывается
+сам. Ни GUI-автоматизации, ни инъекций, ни пропатченного бинаря.
 
-## What is actually hard
+## Что здесь на самом деле сложно
 
-Automation was solved by the vendor in 2019. **Competence was not.**
+Автоматизацию вендор закрыл в 2019-м. **Компетентность — нет.**
 
-An agent that can call `simulate` but does not know that node 0 is ground, that
-every node needs a DC path to it, or that a `.TRAN` span must follow the
-circuit's own time constants will produce confident nonsense. Worse, some
-failures are silent: run Micro-Cap's own 555 astable with its shipped settings
-and you get *one* data point — the oscillator looks dead.
+Агент, который умеет вызвать `simulate`, но не знает, что узел `0` — это земля, что
+каждому узлу нужен путь по постоянному току до неё, а интервал `.TRAN` обязан
+соответствовать постоянным времени схемы, — **уверенно выдаст чушь**.
+
+Хуже, что часть провалов молчаливая. Возьми штатный генератор на 555 из поставки
+Micro-Cap и запусти с его же настройками:
 
 ```
-points=None  ->   1 row  | v(OUT) 0.482..0.482 V   ← "it doesn't oscillate"
-points=200   -> 200 rows | v(OUT) 0.229..9.964 V   ← full rail-to-rail swing
+points=None  →   1 строка  | v(OUT) 0.482..0.482 В   ← «схема не генерирует»
+points=200   → 200 строк   | v(OUT) 0.229..9.964 В   ← полный размах от шины до шины
 ```
 
-So the server is built in three layers:
+С родной настройкой схемы генератор выглядит **мёртвым**. Никакой ошибки при этом нет.
 
-| Layer | Mechanism | Purpose |
-| --- | --- | --- |
-| Capability | MCP **tools** | run analyses, sweep, export |
-| Knowledge | reference corpus + rules in the tool contracts | ~490 worked circuits across 44 domains |
-| Judgment | validation + solver diagnostics | refuse malformed runs, surface solver distress |
+Поэтому сервер построен в три слоя:
 
-## Install
+| Слой | Механизм | Зачем |
+|---|---|---|
+| **Capability** | MCP-**tools** | запуск анализов, свипы, экспорт |
+| **Knowledge** | корпус эталонов + правила в контрактах тулзов | ~490 рабочих схем по 44 доменам |
+| **Judgment** | валидация + диагностика солвера | отказ на бессмысленных прогонах, сигнал о мучениях солвера |
 
-Needs Python 3.11+, Windows, and your own Micro-Cap 12 installation.
+## Установка
+
+Нужны Python 3.11+, Windows и **своя** установка Micro-Cap 12.
 
 ```bash
-git clone https://github.com/<you>/microcap-mcp
+git clone https://github.com/monoxide-xen/microcap-mcp
 cd microcap-mcp
 uv sync
 ```
 
-The driver auto-detects common install paths; otherwise:
+Драйвер сам ищет типовые пути установки; если не нашёл:
 
 ```bash
 export MICROCAP_HOME="D:/Games/MC12"
 ```
 
-Register it with your MCP client:
+Подключение к MCP-клиенту:
 
 ```json
 {
@@ -83,95 +105,119 @@ Register it with your MCP client:
 }
 ```
 
-## Tools
+## Инструменты
 
-| Tool | Does |
-| --- | --- |
-| `simulate` | run a SPICE netlist, return waveform data + solver stats |
-| `sweep` | run one deck repeatedly over a `.DEFINE` parameter |
-| `plot` | return Micro-Cap's rendered plot as a JPEG |
-| `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
-| `describe_example` | what a reference circuit is set up to do, without running it |
-| `list_domains` | the 44 reference domains and their circuit counts |
-| `search_examples` | search the reference circuits |
-| `get_example` | fetch a reference circuit's source |
+| Тулза | Что делает |
+|---|---|
+| `simulate` | гоняет SPICE-нетлист, возвращает данные кривых + статистику солвера |
+| `sweep` | прогоняет схему по значениям `.DEFINE`-параметра |
+| `plot` | отдаёт график, отрисованный самим Micro-Cap, как JPEG |
+| `simulate_example` | считает одну из ~490 схем из поставки Micro-Cap |
+| `describe_example` | что схема умеет — без запуска |
+| `list_domains` | 44 домена эталонных схем и их размеры |
+| `search_examples` | поиск по эталонным схемам |
+| `get_example` | исходник эталонной схемы |
 
-## How well does it work
+## Насколько это работает
 
-`eval/harness.py` runs every circuit Micro-Cap ships through the driver and
-buckets each failure by cause — because "79% works" is useless without knowing
-whether the rest is our bug, a missing feature, or a circuit that could never
-answer the question.
+`eval/harness.py` прогоняет **все** схемы из поставки Micro-Cap через драйвер и
+раскладывает каждый провал по причинам — потому что «работает 79%» бесполезно, пока не
+ясно, остальное это **мой баг, отсутствующая фича или схема, которая физически не может
+ответить на вопрос**.
 
 ```
-RUNS 925   OK 728 (79% of all)   FAILED 197   978s
-  59 runs were unanswerable by construction (digital-only / no setup)
-  728/866 = 84% of runs the circuit could answer
+RUNS 925   OK 728 (79% от всех)   FAILED 197   978s
+  59 прогонов неотвечаемы по устройству (только цифра / нет настройки анализа)
+  728/866 = 84% от прогонов, на которые схема могла ответить
 ```
 
-Of the remaining failures, most are not the driver's: broken node references
-inside subcircuits, circuits with no ground, plot traces that are the literal
-constant `1`, Micro-Cap's own refusal to plot noise beside other expressions,
-and 42 circuits whose DC block was never configured with a source to sweep.
-Fixing every remaining bug of ours would land near **87%**. Getting to 99% would
-mean counting other people's broken circuits as our successes.
+Из оставшихся провалов **большинство — не драйвера**: битые ссылки на узлы внутри
+подсхем, схемы без земли, графики-заглушки с литеральной константой `1` вместо сигнала,
+собственный запрет Micro-Cap строить шум рядом с другими выражениями и 42 схемы, у
+которых DC-блок никогда не настраивали на источник для свипа.
+
+Вычистив все свои баги до последнего, можно дойти примерно до **87%**. Дотянуть до 99%
+означало бы **записать чужие сломанные схемы себе в успехи**.
 
 ```bash
-uv run python eval/harness.py --all --window   # full sweep, progress window
-uv run python eval/harness.py --domain Filters # one domain
+uv run python eval/harness.py --all --window    # полный прогон с окном прогресса
+uv run python eval/harness.py --domain Filters  # один домен
 ```
 
-## Things Micro-Cap does that the manual does not mention
+## Что Micro-Cap делает вопреки мануалу
 
-Each of these cost real debugging, and none is in the documentation — one is
-flatly contradicted by it.
+Каждый пункт стоил реальной отладки, ни одного нет в документации — а один она прямо
+**опровергает**.
 
-**Driving it**
+<details open>
+<summary><b>Как им управлять</b></summary>
 
-* Batch paths must be flat names in Micro-Cap's own `DATA` folder. A
-  subdirectory fails with `No such file or directory` and produces nothing.
-* Micro-Cap writes a `.DOC` log beside the batch file with the real error text
-  and per-run solver statistics — nodes, Newton-Raphson iterations, rejected
-  solutions. Error lines are prefixed with the circuit file name, so matching
-  `^Error` silently loses every one of them.
-* **The documented extension list is wrong.** The manual says numeric output is
-  "(.TNO, .ANO, or .DNO)". Distortion and stability analyses write `.HNO`,
-  `.INO` and `.SNO`.
+<br>
 
-**Getting numbers out**
+- Пути в batch — **только плоские имена** в собственной папке `DATA` Micro-Cap.
+  Подпапка → `No such file or directory` и пустой результат.
+- Micro-Cap пишет **`.DOC`-лог рядом с .bat**: настоящий текст ошибок + статистика
+  солвера — узлы, итерации Ньютона-Рафсона, отвергнутые решения. Строки ошибок
+  **префиксованы именем файла схемы**, поэтому поиск по `^Error` теряет их все.
+- **Список расширений в мануале неверен.** Заявлено, что численный вывод — это
+  «(.TNO, .ANO, или .DNO)». Анализы искажений и устойчивости пишут **`.HNO`, `.INO`
+  и `.SNO`**.
 
-* The shipped circuits export nothing by default: numeric output is a per-trace
-  `OUTPUT` flag in a `[WaveForm]` block, set on ~36 of 475 circuits.
-* `NPts=0` in `[Limits]` exports a single row. 22 shipped circuits are like
-  that — they were drawn to be looked at, not exported.
-* `Num Out Low="TMIN"` resolves interactively but not in batch, where it fails
-  with `Low Range Error: Unknown identifier 'TMIN'` and writes no table.
-* Analysis names inside a `.CIR` are `HmDistortion`, `ImDistortion`,
-  `DynamicAC`, `DynamicDC` — abbreviated, no spaces. `DynamicAC`/`DynamicDC`
-  define no traces at all; they annotate the schematic in place.
+</details>
 
-**Reading the output**
+<details>
+<summary><b>Как достать числа</b></summary>
 
-* The units row is positional, not one-per-column — dimensionless columns have
-  no unit, and a fully dimensionless table has a blank units row.
-* Numbers come in three spellings: `70.000000`, `5.000E+00`, `37.383410m`.
-* `NA` appears where a value is undefined (phase at the first AC point). Digital
-  columns carry logic states `X`, `Z`, `R`, `F`. Treating a row as numbers-only
-  discards the analog columns sitting beside them.
-* Watch out: an AC table's first column is named `F`, which is also the logic
-  state for "falling". Column names need a stricter test than cell values.
+<br>
 
-**The window**
+- Схемы из поставки **по умолчанию не экспортируют ничего**: численный вывод — это флаг
+  `OUTPUT` на каждой трассе в блоке `[WaveForm]`, и он стоит у ~36 схем из 475.
+- `NPts=0` в `[Limits]` экспортирует **одну строку**. Таких схем 22 — их рисовали,
+  чтобы *смотреть*, а не выгружать.
+- `Num Out Low="TMIN"` резолвится интерактивно, но **не в batch**: там это
+  `Low Range Error: Unknown identifier 'TMIN'` и пустая таблица.
+- Написания анализов внутри `.CIR` — `HmDistortion`, `ImDistortion`, `DynamicAC`,
+  `DynamicDC`: сокращённо, без пробелов. `DynamicAC`/`DynamicDC` **не имеют трасс
+  вообще** — они подписывают значения прямо на схеме.
 
-Micro-Cap has no headless mode; in batch it still opens its window and plots as
-it goes. `STARTUPINFO.wShowWindow = SW_HIDE` does not work — MC shows its
-windows explicitly. A watcher thread hiding them cuts on-screen time from 97% to
-10%, but Micro-Cap renders plots *through* the window, so a suppressed one
-exports a **black JPEG**. Suppression and image export are mutually exclusive;
-the driver therefore goes quiet only when no image was requested.
+</details>
 
-## Licence
+<details>
+<summary><b>Как читать вывод</b></summary>
 
-MIT, for the code here. Micro-Cap 12 is Spectrum Software's; it is not
-included, redistributed or modified. This project drives its documented
-command-line interface and nothing more.
+<br>
+
+- Строка единиц **позиционная**, а не «одна на колонку»: у безразмерных величин единиц
+  нет, а у полностью безразмерной таблицы строка пустая.
+- Числа приходят в **трёх написаниях**: `70.000000`, `5.000E+00`, `37.383410m`.
+- **`NA`** — значение не определено (фаза на первой точке AC). Цифровые колонки несут
+  логические состояния `X`, `Z`, `R`, `F`. Требование «в строке только числа»
+  выбрасывает таблицу вместе с нормальными аналоговыми колонками рядом.
+- Осторожно: первая колонка AC-таблицы называется **`F`** — и это же логическое
+  состояние «falling». Имена колонок нужно проверять строже, чем значения ячеек.
+
+</details>
+
+<details>
+<summary><b>Про окно</b></summary>
+
+<br>
+
+Headless-режима у Micro-Cap нет: в batch он всё равно открывает окно и рисует графики по
+ходу. `STARTUPINFO.wShowWindow = SW_HIDE` **не работает** — MC показывает окна явно.
+Поток-сторож, гасящий их по мере появления, снижает время присутствия окна на экране с
+97% до 10%.
+
+Но Micro-Cap рисует графики **через окно**, поэтому скрытое окно экспортирует
+**чёрный JPEG**. Подавление и экспорт картинок несовместимы — драйвер уходит в тишину
+только тогда, когда картинка не запрошена.
+
+</details>
+
+## Лицензия
+
+[MIT](LICENSE) — на код в этом репозитории.
+
+Micro-Cap 12 принадлежит Spectrum Software. Он **не включён, не перезалит и не
+модифицирован**: проект дёргает его документированный интерфейс командной строки и
+ничего больше. Установить Micro-Cap 12 нужно самостоятельно.
