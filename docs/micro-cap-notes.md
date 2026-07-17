@@ -213,3 +213,31 @@ transient — not the SPICE `AC 1` spelling.
 
 Verified by generating an RC low-pass that reproduces `1/sqrt(2)` at the cutoff,
 a resistive divider at exactly 0.5, an RL high-pass, and a charging transient.
+
+### Parallel branches and active components
+
+**Parallel branches work with the same passive geometry.** Elements sharing a
+node just need their own wire down to their own ground. A series R feeding a
+parallel L-C tank resonates at `1/(2*pi*sqrt(LC))` as it should. The generator
+supports series chains plus parallel shunt branches (RC/RL/RLC, dividers,
+tanks).
+
+**Active components hit a wall — geometry solved, instantiation not.** The pin
+geometry reads straight from `Standard.cmp`:
+
+```
+Opamp: Plus in(0,0) Minus in(0,6) VEE(4,7) Output(9,3) VCC(4,-1)   ; grid units
+NPN:   Collector(3,-3) Base(0,0) Emitter(3,3)
+```
+
+The near-ideal LEVEL=1 op-amp needs no external supply (VCC/VEE float in the
+shipped OPAMP1). But an op-amp placed in a *minimal* generated `.CIR` — even
+OPAMP1's own op-amp block copied verbatim, model in `[Text Area]`, output
+labelled at the pin — fails to extract a netlist: `Can't find label 'OUT'`.
+The working OPAMP1 carries many more sections ([Schematic], [Object], [Page],
+...), one of which the schematic netliser needs to instantiate a macro/
+subcircuit component like the op-amp. Passives need none of that. Cracking
+active-component generation means reverse-engineering that macro infrastructure
+— genuine further work, so op-amps and transistors are not generated. A `.CKT`
+netlist with an op-amp subcircuit already simulates, if a drawn schematic is
+not required.

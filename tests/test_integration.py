@@ -178,3 +178,16 @@ def test_bad_netlist_returns_error_not_crash():
 def test_missing_print_is_refused_with_guidance():
     r = simulate("X\nV1 1 0 AC 1\nR1 1 0 1K\n.AC DEC 10 1 1K\n.END", analysis="ac")
     assert "error" in r and ".PRINT" in r["error"]
+
+
+def test_generated_lc_tank_resonates():
+    """A series R feeding a parallel L-C tank peaks at f0 = 1/(2*pi*sqrt(LC)).
+    L=1mH, C=1uF -> ~5033 Hz. Verifies parallel-branch routing electrically.
+    """
+    g = generate_schematic(["R=1K"], shunt=["L=1M", "C=1U"], analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=200)
+    assert "error" not in r, r
+    f, v = r["data"]["F"], r["data"]["V(OUT)"]
+    peak = max(range(len(v)), key=lambda i: v[i])
+    assert f[peak] == pytest.approx(5033, rel=0.1), "tank must resonate near f0"

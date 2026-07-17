@@ -159,39 +159,53 @@ def generate_schematic(
     source: str = "DC=0 AC=1",
     analysis: str = "AC",
     output_node: str = "OUT",
+    shunt: list[str] | None = None,
 ) -> dict[str, Any]:
     """Draw a ``.CIR`` schematic: a voltage source driving parts in series to
-    ground, with the junction after the first part labelled ``output_node``.
+    ground, optionally with parallel branches from the output node to ground.
 
     Unlike a netlist, this produces a *drawn* schematic you can open in
     Micro-Cap. Feed the result to ``simulate_schematic`` to run it, or hand the
     ``.CIR`` text to the user.
 
-    Bounded on purpose — a source and a series chain of two-terminal passives
-    (R, C, L). That covers RC/RL/RLC and dividers. Every pin position is taken
-    from Micro-Cap's own component library, so the drawn circuit is
-    electrically what you asked for.
+    Bounded on purpose — a source, a series chain of two-terminal passives
+    (R, C, L), and optional parallel shunt branches. That covers RC/RL/RLC,
+    dividers, and resonant tanks. Every pin position is taken from Micro-Cap's
+    own component library, so the drawn circuit is electrically what you asked
+    for. Active parts (op-amps, transistors) are not supported.
 
     Args:
-        parts: ordered ``"KIND=VALUE"`` strings, KIND in R/C/L, e.g.
-            ``["R=1K", "C=159.155N"]`` for an RC low-pass.
+        parts: ordered ``"KIND=VALUE"`` strings in series, KIND in R/C/L, e.g.
+            ``["R=1K", "C=159.155N"]`` for an RC low-pass. With ``shunt``, the
+            whole chain feeds the output node.
         source: the source's VALUE in Micro-Cap syntax — ``"DC=0 AC=1"`` for an
             AC probe, or a ``PULSE ...`` line for transient.
         analysis: AC, Transient, or DC.
-        output_node: label for the junction after the first part.
+        output_node: label for the output node.
+        shunt: extra ``"KIND=VALUE"`` strings hung in parallel from the output
+            node to ground, e.g. ``["L=1M", "C=1U"]`` on a series R for a tank.
 
     Returns the ``.CIR`` text and the ordered part references.
     """
     from . import schematic as sch
 
-    pairs: list[tuple[str, str]] = []
-    for spec in parts:
-        if "=" not in spec:
-            return {"error": f"part {spec!r} must be 'KIND=VALUE', e.g. 'R=1K'"}
-        kind, value = spec.split("=", 1)
-        pairs.append((kind.strip(), value.strip()))
+    def parse(specs: list[str]) -> list[tuple[str, str]]:
+        out = []
+        for spec in specs:
+            if "=" not in spec:
+                raise sch.SchematicError(f"part {spec!r} must be 'KIND=VALUE', e.g. 'R=1K'")
+            kind, value = spec.split("=", 1)
+            out.append((kind.strip(), value.strip()))
+        return out
+
     try:
-        cir = sch.series_circuit(pairs, source=source, analysis=analysis, output_node=output_node)
+        cir = sch.series_circuit(
+            parse(parts),
+            source=source,
+            analysis=analysis,
+            output_node=output_node,
+            shunt=parse(shunt) if shunt else None,
+        )
     except sch.SchematicError as e:
         return {"error": str(e)}
     return {

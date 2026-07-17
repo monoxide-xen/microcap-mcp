@@ -88,3 +88,36 @@ def test_empty_parts_rejected():
 def test_unsupported_part_rejected():
     with pytest.raises(SchematicError, match="unsupported"):
         series_circuit([("Q", "2N2222")], analysis="AC")
+
+
+# --------------------------------------------------------------------------
+# parallel shunt branches
+# --------------------------------------------------------------------------
+
+
+def test_shunt_adds_parallel_branches_to_ground():
+    """A series R with a shunt L and C makes a resonant tank; the physics is
+    checked in the integration tests, here just the structure.
+    """
+    cir = series_circuit([("R", "1K")], shunt=[("L", "1M"), ("C", "1U")], analysis="AC")
+    assert cir.count("Name=Inductor") == 1
+    assert cir.count("Name=Capacitor") == 1
+    # source ground + one ground per shunt branch, and NOT a ground on the output
+    assert cir.count("Name=Ground") == 1 + 2
+
+
+def test_shunt_output_node_is_not_grounded():
+    """Grounding the output directly would short it — the shunts are its path
+    to ground. Regression guard: an earlier version grounded it and got V=0.
+    """
+    cir = series_circuit([("R", "1K")], shunt=[("C", "1U")], analysis="AC")
+    import re
+    # the OUT label's x
+    out_x = int(re.search(r'Text="OUT"\nPx=(\d+),128', cir).group(1))
+    # no wire drops straight from (out_x,128) to a ground at (out_x,152)
+    assert f"Pxs={out_x},128,{out_x},152" not in cir
+
+
+def test_shunt_parts_are_validated_too():
+    with pytest.raises(SchematicError, match="unsupported"):
+        series_circuit([("R", "1K")], shunt=[("Q", "2N2222")], analysis="AC")
