@@ -211,7 +211,7 @@ def plot(netlist: str, analysis: str = "transient", defines: dict[str, str] | No
 
 @mcp.tool()
 def simulate_example(
-    name: str, analysis: str = "ac", max_points: int = 200
+    name: str, analysis: str = "ac", max_points: int = 200, points: int = 200
 ) -> dict[str, Any]:
     """Run one of Micro-Cap's own reference circuits and return its data.
 
@@ -222,6 +222,16 @@ def simulate_example(
     useful.
 
     Numeric export is enabled automatically; the shipped circuits have it off.
+
+    Args:
+        name: reference circuit name.
+        analysis: which analysis to run.
+        max_points: cap on returned samples.
+        points: resolution to compute at. The reference circuits carry their
+            own display setting, often tiny or ``0`` — which exports a single
+            useless row and makes an oscillator look dead. Overriding it is what
+            makes the library usable as data; only lower it if you specifically
+            want the circuit's own resolution.
     """
     try:
         e = corpus.find(name)
@@ -232,7 +242,9 @@ def simulate_example(
         if e.is_netlist:
             result = _driver().simulate(text, analysis=analysis, plot_image=False)
         else:
-            result = _driver().simulate_cir(text, analysis=analysis, plot_image=False)
+            result = _driver().simulate_cir(
+                text, analysis=analysis, plot_image=False, points=points
+            )
         return {"circuit": e.name, "domain": e.domain, **_summarise(result, max_points)}
     except (MicroCapError, ValueError) as err:
         return {"error": str(err), "circuit": e.name, "domain": e.domain}
