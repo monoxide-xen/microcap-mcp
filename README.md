@@ -7,6 +7,7 @@
 Даёт LLM-агенту считать аналоговые схемы: запускать анализы, гонять свипы,
 получать данные кривых и графики.
 
+[![tests](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/platform-Windows-0078D6.svg?logo=windows&logoColor=white)](#установка)
@@ -124,6 +125,15 @@ C1 OUT 0 159.155N
 
 `solver.rejected_solutions` — сколько решений отверг солвер. Ненулевое значение означает,
 что прогон формально прошёл, но кривой лучше не доверять.
+
+## Тесты
+
+```bash
+uv run pytest
+```
+
+60 тестов, Micro-Cap не требуется: парсер, работа с `.CIR` и чтение лога — чистая обработка
+текста. Каждый тест закрывает конкретный баг на реальных данных Micro-Cap.
 
 ## Оценка на корпусе
 
