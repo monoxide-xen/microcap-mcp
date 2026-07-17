@@ -117,14 +117,17 @@ C1 OUT 0 159.155N
     "F":      [10.0, 100.0, 1000.0, 10000.0],
     "V(OUT)": [1.0,  0.995, 0.70710, 0.09950]
   },
-  "solver": { "nodes": 2, "iterations": 88, "rejected_solutions": 0 }
+  "solver": { "nodes": 2, "iterations": 88, "rejected_solutions": 0,
+              "rejected_fraction": 0.0, "iterations_per_solution": 2.0 }
 }
 ```
 
 The RC cutoff `1/(2πRC)` is 1000 Hz, where the gain should be `1/√2 ≈ 0.70711`.
 
-`solver.rejected_solutions` counts the solutions the solver threw away. A non-zero value
-means the run technically completed but the waveform should not be trusted.
+`solver.rejected_fraction` is the share of timesteps the solver retried. It is a signature
+of topology, not an alarm: switching converters sit at 18–23%, linear circuits at 0–5% —
+the solver cuts the step at each switching edge, which is normal. Past 15%, a note is
+added to the response.
 
 ## Tests
 
@@ -132,7 +135,7 @@ means the run technically completed but the waveform should not be trusted.
 uv run pytest
 ```
 
-60 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
+74 tests, no Micro-Cap needed: the parser, the `.CIR` handling and the log reader are pure
 text processing. Each test pins a real bug against output Micro-Cap actually produced.
 
 ## Corpus evaluation
@@ -144,7 +147,7 @@ uv run python eval/harness.py --all --window   # full sweep with a progress wind
 uv run python eval/harness.py --domain Filters # a single domain
 ```
 
-Current result: 741 of 866 runs the circuit is able to answer (86%). Most remaining
+Current result: 760 of 866 runs the circuit is able to answer (88%). Most remaining
 failures are not on the driver's side — circuits with no ground, broken node references,
 unconfigured DC blocks.
 

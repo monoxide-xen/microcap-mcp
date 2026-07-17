@@ -181,6 +181,22 @@ _STAT_ROW = re.compile(
 )
 
 
+def bisect(items: list) -> tuple[list, list]:
+    """Split a timed-out batch for retry.
+
+    A circuit that hangs Micro-Cap on a modal dialog takes the whole batch down
+    with it, so its neighbours must be retried apart from it. A single leftover
+    is not assumed guilty — it may simply not have been reached before a
+    neighbour wedged the run — so the caller re-runs it alone to get its own
+    diagnosis. This just decides the split; empty and singleton inputs are
+    returned unchanged for the caller to handle.
+    """
+    if len(items) <= 1:
+        return items, []
+    mid = len(items) // 2
+    return items[:mid], items[mid:]
+
+
 def parse_log(text: str) -> BatchLog:
     """Parse MC's batch .DOC log.
 
@@ -504,6 +520,7 @@ class MicroCap:
         hide: bool = True,
         on_done: "callable | None" = None,
         _retry_on_timeout: bool = True,
+        _retry_silent: bool = True,
     ) -> dict[str, Result | Exception]:
         """Run many circuits in a *single* Micro-Cap invocation.
 
@@ -609,13 +626,22 @@ class MicroCap:
             if not unfinished:
                 return results
             if len(unfinished) == 1:
-                results[unfinished[0].key] = e
+                # One circuit left, and its file never appeared. It is not
+                # necessarily the one that hung — it may simply not have been
+                # reached before a *neighbour* wedged the batch. Give it a run
+                # of its own so its own .DOC survives and its real diagnosis is
+                # kept, instead of blaming it for the timeout. Only if that lone
+                # run also times out is it truly the culprit.
+                job = unfinished[0]
+                solo = self.run_many(
+                    [job], timeout=max(30.0, 6.0), hide=hide, _retry_on_timeout=False
+                )
+                results.update(solo)
                 if on_done:
-                    on_done(unfinished[0].key)
+                    on_done(job.key)
                 return results
 
-            mid = len(unfinished) // 2
-            for half in (unfinished[:mid], unfinished[mid:]):
+            for half in bisect(unfinished):
                 if half:
                     results.update(
                         self.run_many(half, hide=hide, on_done=on_done, _retry_on_timeout=True)
@@ -625,11 +651,28 @@ class MicroCap:
         # MC's log names each run by its file, so stats map back by stem.
         stats_by_circuit = {s.circuit.upper(): s for s in log.stats}
 
+        # A circuit can produce no file while the batch as a whole succeeds and
+        # the log names no fault for it — measured: ~19 of 28 such "silent"
+        # cases run fine on their own, so the silence is an interaction with
+        # other circuits in the batch, not a property of the circuit. Rather
+        # than root-cause a closed, abandoned program, re-run the silent ones
+        # solo to get their true verdict. Collected here, retried below.
+        silent: list[Job] = []
+
         for job, stem, ext in prepared:
+            path = self._find(f"{stem}.{ext}")
+            if path is None:
+                mc_said = log.why(stem)
+                if _retry_silent and "no error text" in mc_said:
+                    silent.append(job)
+                    self.purge(stem)
+                    continue
+                results[job.key] = MicroCapError(f"no {ext} produced. Micro-Cap said: {mc_said}")
+                self.purge(stem)
+                if on_done:
+                    on_done(job.key)
+                continue
             try:
-                path = self._find(f"{stem}.{ext}")
-                if path is None:
-                    raise MicroCapError(f"no {ext} produced. Micro-Cap said: {log.why(stem)}")
                 one = BatchLog(errors=[e for e in log.errors if stem.upper() in e.upper()])
                 if s := stats_by_circuit.get(f"{stem}.{ext[0]}CT".upper()):
                     one.stats = [s]
@@ -651,6 +694,15 @@ class MicroCap:
 
         if not self.keep_files:
             self.purge(batch_stem)
+
+        for job in silent:
+            # One circuit per launch, and _retry_silent off so a still-silent
+            # result is recorded as-is rather than looping.
+            solo = self.run_many([job], hide=hide, _retry_silent=False)
+            results[job.key] = solo[job.key]
+            if on_done:
+                on_done(job.key)
+
         return results
 
     def _find(self, name: str) -> Path | None:
