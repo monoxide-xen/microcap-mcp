@@ -105,43 +105,33 @@ _WINDOW_SECTION = {
     "stability": "[Stability]",
 }
 
-_NUM_OUT_RANGE = re.compile(r'(?m)^Num Out (Low|High)=.*$')
 
 
 def resolve_numeric_range(text: str, analysis: str) -> tuple[str, bool]:
-    """Replace symbolic numeric-output bounds with the analysis's own limits.
+    """Repair the one export bound Micro-Cap cannot resolve in batch.
 
-    Circuits express the export range symbolically::
+    The export range lives in the analysis section and is written symbolically::
 
-        Num Out Low="TMIN"
-        Num Out High="TMAX"
+        Num Out Low="TMIN"     ← fails in batch
+        Num Out Low="TSTART"   ← works
+        Num Out High="TMAX"    ← works
 
-    Those symbols resolve interactively but not in batch, where Micro-Cap
-    fails with ``Low Range Error: Unknown identifier 'TMIN'`` and writes no
-    table. Substituting the concrete bounds from the ``[Limits]`` block fixes
-    it. Returns the patched text and whether anything was replaced.
+    Of those symbols only ``TMIN`` fails, with
+    ``Low Range Error: Unknown identifier 'TMIN'`` and no table at all. Measured
+    across the shipped library: every circuit using ``TSTART`` exports fine,
+    every circuit using ``TMIN`` exports nothing, and swapping one for the other
+    fixes the latter without touching the former. ``FMIN``/``FMAX`` (AC) and
+    ``DCMIN``/``DCMAX`` (DC) resolve normally.
+
+    So this is a one-symbol substitution, not a general rewrite. An earlier
+    version pasted concrete values out of ``[Limits]`` instead, which broke
+    every circuit whose limits are an expression (``TMax=10/f0``) — a diagnosis
+    that was wrong about the cause and happened to work often enough to hide it.
+
+    Returns the patched text and whether anything changed.
     """
     section = _WINDOW_SECTION.get(analysis)
-    if not section:
-        return text, False
-
-    want = CIR_ANALYSIS[analysis]
-    low = high = None
-    for block in _BLOCK.split(text):
-        if block.startswith("[Limits]") and (_field(block, "Analysis") or "") == want:
-            if analysis == "transient":
-                low, high = _field(block, "TStart") or "0", _field(block, "TMax") or _field(block, "TRange")
-            elif analysis == "ac":
-                rng = (_field(block, "FRange") or "").split(",")
-                if len(rng) == 2:
-                    high, low = rng[0].strip(), rng[1].strip()
-            elif analysis == "dc":
-                rng = (_field(block, "DCRange") or _field(block, "Range1") or "").split(",")
-                if len(rng) == 2:
-                    high, low = rng[0].strip(), rng[1].strip()
-            break
-
-    if not low or not high:
+    if not section or analysis != "transient":
         return text, False
 
     blocks = _BLOCK.split(text)
@@ -149,8 +139,7 @@ def resolve_numeric_range(text: str, analysis: str) -> tuple[str, bool]:
     for i, block in enumerate(blocks):
         if not block.startswith(section):
             continue
-        new = re.sub(r'(?m)^Num Out Low=.*$', f'Num Out Low="{low}"', block)
-        new = re.sub(r'(?m)^Num Out High=.*$', f'Num Out High="{high}"', new)
+        new = re.sub(r'(?m)^Num Out Low="TMIN"$', 'Num Out Low="TSTART"', block)
         if new != block:
             blocks[i] = new
             changed = True
