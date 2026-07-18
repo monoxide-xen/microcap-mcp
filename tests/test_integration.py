@@ -31,6 +31,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
     generate_amplifier,
+    generate_differential_pair,
     generate_emitter_follower,
     generate_mosfet_amplifier,
     generate_schematic,
@@ -270,3 +271,29 @@ def test_generated_mosfet_common_source_hits_its_gain(rd, rs, expected):
     got = _midband_gain(r)
     assert got == pytest.approx(expected, rel=0.1), f"gain {got} vs ~{expected}"
     assert got > 1.0, "an amplifier must have gain, not a saturated ~0"
+
+
+def _midband_complex(r):
+    vals = r["data"][r["columns"][-1]]
+    v = vals[len(vals) // 2]
+    return complex(*v.values()) if isinstance(v, dict) else complex(v)
+
+
+def test_generated_differential_pair_is_balanced_and_antiphase():
+    """The two collectors of a long-tailed pair must swing in antiphase and with
+    matched magnitude — the defining behaviour. Mid-supply bias makes the
+    differential gain ~Vcc/(4*Vt) ≈ 115 on 12 V, set by the supply not Rc.
+    """
+    op = simulate_schematic(
+        generate_differential_pair(rc="10K", output_node="OUTP")["schematic"],
+        analysis="ac", points=25)
+    on = simulate_schematic(
+        generate_differential_pair(rc="10K", output_node="OUTN")["schematic"],
+        analysis="ac", points=25)
+    assert "error" not in op and "error" not in on, (op, on)
+    vp, vn = _midband_complex(op), _midband_complex(on)
+    assert abs(vp) > 50, f"gain too low: {abs(vp)}"
+    # balanced: the two magnitudes match within 10%
+    assert abs(vp) == pytest.approx(abs(vn), rel=0.1)
+    # antiphase: vp ≈ -vn, so their sum nearly cancels
+    assert abs(vp + vn) < 0.15 * abs(vp), f"outputs not antiphase: {vp}, {vn}"

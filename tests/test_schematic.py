@@ -179,6 +179,7 @@ from microcap_mcp.schematic import (  # noqa: E402
     common_collector_amplifier,
     common_emitter_amplifier,
     common_source_amplifier,
+    differential_pair,
     _require_on_grid,
 )
 
@@ -307,7 +308,45 @@ def test_all_stages_keep_part_and_node_names_distinct():
         common_emitter_amplifier(),
         common_collector_amplifier(),
         common_source_amplifier(),
+        differential_pair(),
     ):
         labels = set(re.findall(r'\[Grid Text\]\nText="([^"]+)"', cir))
         parts = set(re.findall(r'PART\nV=(\w+)', cir))
         assert not (labels & parts), (labels & parts)
+
+
+# --------------------------------------------------------------------------
+# differential pair (multi-device)
+# --------------------------------------------------------------------------
+
+
+def test_differential_pair_has_two_matched_devices_and_both_outputs():
+    cir = differential_pair(rc="10K")
+    assert cir.count("Name=NPN") == 2, "a pair is two transistors"
+    assert "V=Q1" in cir and "V=Q2" in cir
+    assert "V=Rc1" in cir and "V=Rc2" in cir     # a load on each collector
+    assert "V=Rt" in cir                          # the shared tail
+    assert '[Grid Text]\nText="OUTP"' in cir and '[Grid Text]\nText="OUTN"' in cir
+
+
+def test_differential_pair_shared_emitter_is_split_at_the_tap():
+    """The joined emitters must meet the tail end-to-end, not as a midpoint
+    T-tap (which Micro-Cap leaves silently open). The tail-tap x must therefore
+    be a wire endpoint on the emitter run.
+    """
+    import re
+    cir = differential_pair()
+    # emitter y for an NPN at (400,304): 304 + 3*GRID = 328
+    from microcap_mcp.schematic import _DEV_X, GRID
+    tail_x = _DEV_X + 120
+    ey = 304 + 3 * GRID
+    wires = re.findall(r'Pxs=(-?\d+),(-?\d+),(-?\d+),(-?\d+)', cir)
+    endpoints = {(int(a), int(b)) for a, b, c, d in wires} | {(int(c), int(d)) for a, b, c, d in wires}
+    assert (tail_x, ey) in endpoints, "the tail tap must be a wire endpoint, not a midpoint"
+
+
+def test_differential_pair_bias_guards():
+    with pytest.raises(SchematicError):
+        differential_pair(vb="0.3")        # below one Vbe: cannot turn on
+    with pytest.raises(SchematicError):
+        differential_pair(vb="20", vcc="12")  # base above supply

@@ -622,3 +622,124 @@ def _bjt_divider(r1, r2, vcc_v, ic, re_v, model):
     vb = ic * re_v + _VBE
     idiv = 10 * (ic / beta)
     return _fmt_ohms((vcc_v - vb) / idiv), _fmt_ohms(vb / idiv)
+
+
+# --------------------------------------------------------------------------
+# multi-device topologies
+# --------------------------------------------------------------------------
+#
+# One layout rule earns its own note here because a single device never trips
+# it: Micro-Cap joins wires only where their *endpoints* coincide, not where one
+# wire's endpoint lands partway along another (a T-junction). So a shared node
+# that fans out — the joined emitters of a differential pair, a bias rail
+# feeding several taps — must be built from wire segments that meet end-to-end,
+# splitting the run at each tap. A tap dropped onto the middle of a wire is
+# silently open, and the stage biases as if that branch were not there.
+
+
+def _npn_at(qx: int, qy: int) -> dict:
+    return {name: (qx + gx * GRID, qy + gy * GRID) for name, (gx, gy) in NPN_PINS.items()}
+
+
+def differential_pair(
+    rc: str = "10K",
+    rt: str | None = None,
+    vcc: str = "12",
+    vb: str | None = None,
+    source: str = "AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUTP",
+    model: str = NPN_MODEL,
+) -> str:
+    """A BJT long-tailed (differential) pair: two matched NPN sharing an emitter
+    tail resistor to ground, each collector loaded by ``Rc``. Single-ended drive
+    on one base; the two collectors ``OUTP``/``OUTN`` swing in antiphase with a
+    magnitude of ``Rc/(2*re')`` each (``re' = VT / (Itail/2)``).
+
+    The common-mode base voltage ``vb`` and the tail resistor ``rt`` are chosen
+    to bias both collectors near mid-supply, so the pair sits in the active
+    region and both outputs are balanced. The bases are driven by sources
+    carrying the DC bias and the AC signal together (``DC=vb`` on one, plus the
+    ``source`` AC on the other), so no coupling capacitors are needed.
+
+    Args:
+        rc: collector load on each side (sets the gain with ``re'``).
+        rt: emitter tail resistor. ``None`` sizes it for mid-supply collectors.
+        vcc: supply voltage.
+        vb: common-mode base voltage. ``None`` uses ``vcc/2``.
+        source: the AC drive VALUE for the input base (``"AC=1"``).
+        analysis, limits, model: as for the single-device stages.
+        output_node: which collector the default trace plots (``OUTP``); the
+            other is labelled ``OUTN`` and can be plotted by editing the trace.
+
+    Returns the ``.CIR`` text.
+    """
+    from .parser import to_float
+
+    rc_v, vcc_v = to_float(rc), to_float(vcc)
+    vb_v = vcc_v / 2 if vb is None else to_float(vb)
+    if not 0 < vb_v < vcc_v:
+        raise SchematicError(f"vb ({vb_v}) must sit between 0 and vcc ({vcc})")
+
+    # Size the tail for mid-supply collectors: want Vc = vcc/2, so each side
+    # carries Ic = vcc/(2*Rc) and the tail carries twice that. Rt drops the
+    # emitter voltage (vb - Vbe) at that tail current.
+    ic = vcc_v / (2 * rc_v)
+    itail = 2 * ic
+    ve = vb_v - _VBE
+    if ve <= 0:
+        raise SchematicError(f"vb ({vb_v}) is below one Vbe; the pair cannot turn on")
+    rt = rt if rt is not None else _fmt_ohms(ve / itail)
+
+    q1 = _npn_at(_DEV_X, _DEV_Y)
+    q2 = _npn_at(_DEV_X + 200, _DEV_Y)
+    for p in (q1, q2):
+        _require_on_grid(*p.values())
+    tail_x = _DEV_X + 120                     # 520: on the grid, between the two
+    vcc_y, gnd_y = _VCC_Y, _GND_Y
+
+    d = [
+        _comp("NPN", _DEV_X, _DEV_Y, [("PART", "Q1"), ("MODEL", _model_name(model, "QN"))]),
+        _comp("NPN", _DEV_X + 200, _DEV_Y, [("PART", "Q2"), ("MODEL", _model_name(model, "QN"))]),
+    ]
+    # supply and the top rail out to both collectors
+    d += [
+        _comp(SOURCE.shape, 96, vcc_y, [("PART", "VP"), (SOURCE.value_attr, f"DC={vcc}")]),
+        _wire(96, vcc_y, 96, vcc_y + 24), _comp("Ground", 96, vcc_y + 24, []),
+        _wire(144, vcc_y, q1["collector"][0], vcc_y),
+        _wire(q1["collector"][0], vcc_y, q2["collector"][0], vcc_y),
+    ]
+    # each collector: Rc from the rail, labelled output
+    for coll, part, lbl in ((q1["collector"], "Rc1", "OUTP"), (q2["collector"], "Rc2", "OUTN")):
+        d += [
+            _comp("Resistor", coll[0], 200, [("PART", part), ("RESISTANCE", rc)], rot=1),
+            _wire(coll[0], vcc_y, coll[0], 200), _wire(coll[0], 248, coll[0], coll[1]),
+            _label(lbl, *coll),
+        ]
+    # emitters joined — split at the tail tap so it meets end-to-end (a midpoint
+    # T-tap would be silently open) — then the tail resistor down to ground
+    e1, e2 = q1["emitter"], q2["emitter"]
+    d += [
+        _wire(e1[0], e1[1], tail_x, e1[1]), _wire(tail_x, e1[1], e2[0], e2[1]),
+        _comp("Resistor", tail_x, 376, [("PART", "Rt"), ("RESISTANCE", rt)], rot=1),
+        _wire(tail_x, e1[1], tail_x, 376), _wire(tail_x, 424, tail_x, gnd_y),
+        _comp("Ground", tail_x, gnd_y, []),
+    ]
+    # base drives: DC bias + AC on the input side, DC bias only on the other.
+    # Each source sits to the left of its base, Plus (right pin) feeding it.
+    b1, b2 = q1["base"], q2["base"]
+    d += [
+        _comp(SOURCE.shape, b1[0] - 96, b1[1], [("PART", "Vin"), (SOURCE.value_attr, f"DC={_fmt_v(vb_v)} {source}")]),
+        _wire(b1[0] - 96, b1[1], b1[0] - 96, b1[1] + 24), _comp("Ground", b1[0] - 96, b1[1] + 24, []),
+        _wire(b1[0] - 48, b1[1], b1[0], b1[1]), _label("IN", b1[0] - 48, b1[1]),
+        _comp(SOURCE.shape, b2[0] - 96, b2[1], [("PART", "Vb2"), (SOURCE.value_attr, f"DC={_fmt_v(vb_v)}")]),
+        _wire(b2[0] - 96, b2[1], b2[0] - 96, b2[1] + 24), _comp("Ground", b2[0] - 96, b2[1] + 24, []),
+        _wire(b2[0] - 48, b2[1], b2[0], b2[1]),
+    ]
+    return _assemble(d, analysis, limits, output_node, model)
+
+
+def _fmt_v(value: float) -> str:
+    """Trim a bias voltage to a clean literal (6.0 -> 6)."""
+    return f"{value:g}"
