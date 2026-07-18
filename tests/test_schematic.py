@@ -167,3 +167,87 @@ def test_bad_gain_and_kind_rejected():
         opamp_amplifier(gain=0, kind="inverting")
     with pytest.raises(SchematicError):
         opamp_amplifier(gain=5, kind="cascode")
+
+
+# --------------------------------------------------------------------------
+# common-emitter transistor stage
+# --------------------------------------------------------------------------
+
+from microcap_mcp.schematic import (  # noqa: E402
+    NPN_PINS,
+    common_emitter_amplifier,
+    _require_on_grid,
+)
+
+
+def test_npn_pins_match_the_library():
+    """From Standard.cmp: Collector (3,-3), Base (0,0), Emitter (3,3). A wrong
+    offset here builds a device whose node label lands nowhere.
+    """
+    assert NPN_PINS == {"collector": (3, -3), "base": (0, 0), "emitter": (3, 3)}
+
+
+def test_off_grid_pin_is_refused():
+    """A [Grid Text] label binds only on the 8px grid; an off-grid pin would be
+    silently dropped, so the generator must refuse it rather than emit V(OUT)=0.
+    """
+    with pytest.raises(SchematicError, match="grid"):
+        _require_on_grid((424, 277))          # 277 is not a multiple of 8
+    _require_on_grid((424, 280), (400, 304))   # on-grid: no raise
+
+
+def test_common_emitter_device_pins_are_on_grid():
+    """The whole point: every NPN pin must land on the grid. Recompute them the
+    way the generator does and assert it, so a future origin change can't drift
+    a pin off-grid unnoticed.
+    """
+    from microcap_mcp.schematic import GRID
+    qx, qy = 400, 304
+    for gx, gy in NPN_PINS.values():
+        x, y = qx + gx * GRID, qy + gy * GRID
+        assert x % GRID == 0 and y % GRID == 0
+
+
+def test_common_emitter_structure_and_model_binding():
+    cir = common_emitter_amplifier(rc="4.7K", re="1K")
+    assert cir.count("Name=NPN") == 1
+    # divider, collector and emitter resistors, input cap
+    for ref in ("V=R1", "V=R2", "V=Rc", "V=Re", "V=Cin"):
+        assert ref in cir
+    # the model rides in a page-tagged Text Area (same mechanism as the op-amp)
+    assert "[Text Area]\nSection=0\nPage=1\nText=.MODEL QN NPN" in cir
+    # and the device's MODEL attribute names that same model
+    assert "MODEL\nV=QN" in cir
+    # output node labelled; drawing before Limits (canonical order)
+    assert '[Grid Text]\nText="OUT"' in cir
+    assert cir.index("Name=NPN") < cir.index("[Limits]")
+
+
+def test_part_and_node_names_do_not_collide():
+    """A part and a node sharing a name warns and muddies the netlist, so the
+    supply part must not be called after any labelled net.
+    """
+    import re
+    cir = common_emitter_amplifier()
+    labels = re.findall(r'\[Grid Text\]\nText="([^"]+)"', cir)
+    parts = re.findall(r'PART\nV=(\w+)', cir)
+    assert not (set(labels) & set(parts)), (set(labels) & set(parts))
+
+
+def test_rc_must_exceed_re():
+    with pytest.raises(SchematicError, match="exceed"):
+        common_emitter_amplifier(rc="1K", re="1K")
+    with pytest.raises(SchematicError, match="exceed"):
+        common_emitter_amplifier(rc="470", re="1K")
+
+
+def test_bias_is_computed_by_default_and_overridable():
+    """By default the divider is sized to the request (not a fixed pair); an
+    explicit r1/r2 overrides it, but only if both are given.
+    """
+    auto = common_emitter_amplifier(rc="10K", re="1K")
+    assert "V=R1" in auto and "V=R2" in auto
+    over = common_emitter_amplifier(rc="10K", re="1K", r1="82K", r2="18K")
+    assert "RESISTANCE\nV=82K" in over and "RESISTANCE\nV=18K" in over
+    with pytest.raises(SchematicError, match="both"):
+        common_emitter_amplifier(r1="82K")           # only one given

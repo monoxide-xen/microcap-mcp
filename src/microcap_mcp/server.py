@@ -197,6 +197,58 @@ def generate_amplifier(
 
 
 @mcp.tool()
+def generate_transistor_amplifier(
+    rc: str = "4.7K",
+    re: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vcc: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUT",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` common-emitter BJT gain stage (NPN primitive).
+
+    Divider bias, unbypassed emitter degeneration, AC-coupled input. The
+    midband gain magnitude is ``Rc/(Re+re')`` — roughly ``Rc/Re`` when ``Re`` is
+    well above the intrinsic ``re'``. By default the ``R1``/``R2`` divider is
+    computed to bias the collector at mid-supply, so the stage stays in the
+    active region for any ``Rc``/``Re`` and the gain is real (a fixed divider
+    would silently saturate as ``Rc`` grows). ``Rc`` must exceed ``Re``. Feed
+    the result to ``simulate_schematic``.
+
+    Args:
+        rc, re: collector and (unbypassed) emitter resistors; their ratio is the
+            midband gain. ``Rc`` must exceed ``Re``.
+        r1, r2: base bias divider (``vcc`` to base, base to ground); leave unset
+            to auto-bias for a mid-supply collector, or give both to override.
+        vcc: supply voltage.
+        cin: input coupling capacitor.
+        source: input source VALUE, Micro-Cap syntax (``"AC=1"`` for AC gain).
+        analysis: AC, Transient, or DC.
+        output_node: label for the collector output node.
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.common_emitter_amplifier(
+            rc=rc, re=re, r1=r1, r2=r2, vcc=vcc, cin=cin,
+            source=source, analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "run it with simulate_schematic, or save it as a .CIR to open in Micro-Cap",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",
@@ -215,8 +267,8 @@ def generate_schematic(
     (R, C, L), and optional parallel shunt branches. That covers RC/RL/RLC,
     dividers, and resonant tanks. Every pin position is taken from Micro-Cap's
     own component library, so the drawn circuit is electrically what you asked
-    for. For an op-amp gain stage use generate_amplifier; transistors
-    are not yet supported.
+    for. For an op-amp gain stage use generate_amplifier; for a common-emitter
+    BJT stage use generate_transistor_amplifier.
 
     Args:
         parts: ordered ``"KIND=VALUE"`` strings in series, KIND in R/C/L, e.g.

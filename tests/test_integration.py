@@ -32,6 +32,7 @@ from microcap_mcp.server import (  # noqa: E402
     describe_example,
     generate_amplifier,
     generate_schematic,
+    generate_transistor_amplifier,
     get_example,
     search_examples,
     simulate,
@@ -205,3 +206,40 @@ def test_generated_opamp_amplifier_hits_its_gain(kind, gain):
     assert "error" not in r, r
     got = abs(complex(*r["data"]["V(OUT)"][0].values())) if isinstance(r["data"]["V(OUT)"][0], dict) else abs(r["data"]["V(OUT)"][0])
     assert got == pytest.approx(gain, rel=0.1)
+
+
+def _midband_gain(r):
+    """Magnitude of V(OUT) at the middle of the AC sweep (the input is AC=1)."""
+    vals = r["data"]["V(OUT)"]
+    def mag(v):
+        return abs(complex(*v.values())) if isinstance(v, dict) else abs(v)
+    return mag(vals[len(vals) // 2])
+
+
+@pytest.mark.parametrize("rc,re,expected", [("4.7K", "1K", 4.7), ("10K", "1K", 10), ("2K", "1K", 2)])
+def test_generated_common_emitter_hits_its_gain(rc, re, expected):
+    """A common-emitter BJT stage. The device is a primitive whose pins must
+    land on the 8px grid or the output label silently fails to bind — the real
+    cause behind the "Can't find label" wall (not rotation). Midband gain is
+    Rc/(Re+re'), so a little under Rc/Re.
+    """
+    g = generate_transistor_amplifier(rc=rc, re=re, analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=25)
+    assert "error" not in r, r
+    got = _midband_gain(r)
+    # re' pulls the gain a few % below Rc/Re; never near 0 (which would mean the
+    # stage saturated — the silent failure the auto-bias exists to prevent).
+    assert got == pytest.approx(expected, rel=0.12), f"gain {got} vs ~{expected}"
+    assert got > 1.0, "an amplifier must have gain, not a saturated ~0"
+
+
+def test_common_emitter_auto_bias_keeps_a_large_rc_in_the_active_region():
+    """The trap: a fixed divider saturates as Rc grows and the gain collapses
+    to ~0 with no error. Auto-bias must hold a big-Rc stage in the active region
+    so the gain is still ~Rc/Re, not zero.
+    """
+    g = generate_transistor_amplifier(rc="22K", re="2.2K", analysis="AC")
+    r = simulate_schematic(g["schematic"], analysis="ac", points=25)
+    assert "error" not in r, r
+    assert _midband_gain(r) == pytest.approx(10, rel=0.15)
