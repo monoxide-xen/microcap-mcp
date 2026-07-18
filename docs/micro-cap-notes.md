@@ -242,12 +242,26 @@ Transistors: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
 With these, the generator produces inverting and non-inverting op-amp
 amplifiers, verified against `-Rf/Rin` and `1 + Rf/Rg`.
 
-**Transistors are harder than op-amps.** The NPN is a *primitive* (not a macro),
-referencing a model by name — `2N2222` from the global library, or a local
-`.MODEL QN NPN (...)`. Its three pins from `Standard.cmp` are Collector (3,-3),
-Base (0,0), Emitter (3,3) — but those are the *unrotated* positions, and every
-transistor in the shipped library is placed rotated (`Rot=6`), which permutes
-the pins non-trivially. A transistor placed at `Rot=0` did not instantiate in a
-generated `.CIR` (`Can't find label`), so getting one right needs rotation-aware
-pin geometry — a further increment. Op-amp amplifiers ship; transistor stages do
-not yet.
+**Transistors: the real trap is the grid, not rotation.** The NPN is a
+*primitive* (not a macro), referencing a model by name — `2N2222` from the
+global library, or a local `.MODEL QN NPN (...)`. Its pins from `Standard.cmp`
+are Collector (3,-3), Base (0,0), Emitter (3,3), at `Rot=0` — no rotation is
+needed (the shipped COLPITTS.cir places its NPN at `Rot=0` and its collector
+wire lands exactly on Base+(24,-24), confirming the geometry).
+
+The failure that looked like a rotation problem was actually this: **a
+`[Grid Text]` node label only binds if its coordinate is a multiple of the 8 px
+grid.** A label placed off-grid is silently dropped, and the analysis aborts
+with `Can't find label 'OUT' in V(...)` — the same error a missing macro gives,
+which is what made it look like the transistor "did not instantiate". It did:
+the batch log showed the four analog nodes built and only the *plot label*
+unresolved. The NPN pins sit at Base ±(24,∓24); if the placement origin's `y`
+is not itself a multiple of 8, every pin lands off-grid and no label on them
+binds. Put the whole device on the 8 px grid and it works — no rotation-aware
+geometry, no special case beyond the passives.
+
+With that, a common-emitter stage (divider bias, unbypassed `Re`,
+AC-coupled input) reproduces the small-signal gain `-Rc/(Re+re')` to ~1%.
+One more sharp edge: a part and a node must not share a name — naming the
+supply source `VCC` *and* labelling its net `VCC` earns a warning and muddies
+the netlist; give the label and the part different names.

@@ -302,3 +302,159 @@ def _fmt_ohms(value: float) -> str:
             v = value / scale
             return (f"{v:g}{suffix}")
     return f"{value:g}"
+
+
+# --------------------------------------------------------------------------
+# transistor stages (bipolar primitives)
+# --------------------------------------------------------------------------
+#
+# The NPN is a *primitive*, not a macro: it just references a model by name.
+# Its pins are from Standard.cmp, at Rot=0 — no rotation is needed (the shipped
+# COLPITTS.cir confirms: an NPN at Rot=0 with its collector wire landing on
+# Base+(24,-24)). The trap that made this look like a rotation problem was the
+# grid: a [Grid Text] node label binds only on a multiple of the 8 px grid, so
+# every device pin must land on it or the label is silently dropped and the run
+# aborts with "Can't find label". Keep the whole stage on the grid and it works.
+#
+# One more rule: a part and a node must not share a name (Micro-Cap warns and
+# muddies the netlist), so the supply part and its net label are kept distinct.
+
+NPN_PINS = {"collector": (3, -3), "base": (0, 0), "emitter": (3, 3)}
+NPN_MODEL = ".MODEL QN NPN (BF=150 IS=1E-14 VAF=100)"
+
+
+def _require_on_grid(*points: tuple[int, int]) -> None:
+    """A node label binds only on the 8 px grid; refuse to emit off-grid pins
+    rather than ship a schematic whose output silently reads 0."""
+    for x, y in points:
+        if x % GRID or y % GRID:
+            raise SchematicError(
+                f"pin ({x},{y}) is off the {GRID}px grid; its node label would "
+                f"not bind. Place the device on grid-aligned coordinates."
+            )
+
+
+def common_emitter_amplifier(
+    rc: str = "4.7K",
+    re: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vcc: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUT",
+    model: str = NPN_MODEL,
+) -> str:
+    """A common-emitter BJT gain stage: divider bias, unbypassed emitter
+    degeneration, AC-coupled input. Midband gain magnitude is ``Rc/(Re+re')``,
+    i.e. roughly ``Rc/Re`` for ``Re`` well above the intrinsic ``re'``.
+
+    The DC operating point is not left to the caller by default: ``R1``/``R2``
+    are computed to bias the collector at mid-supply, so the stage is always in
+    the active region and the gain it reports is real. (A fixed divider silently
+    saturates as soon as ``Rc`` grows — the collector pins low and the gain
+    collapses to ~0. That is exactly the kind of silently-wrong output this
+    refuses to emit.) Pass ``r1``/``r2`` to override the computed bias.
+
+    Args:
+        rc, re: collector and (unbypassed) emitter resistors; their ratio is
+            the midband gain. ``Rc`` must exceed ``Re`` (gain > 1).
+        r1, r2: base bias divider (``vcc`` to base, base to ground). ``None``
+            (default) computes them for a mid-supply collector; give both to
+            override.
+        vcc: supply voltage (a DC ``Voltage Source`` value).
+        cin: input coupling capacitor.
+        source: input source VALUE, Micro-Cap syntax (``"AC=1"`` for AC gain).
+        analysis: AC, Transient, or DC.
+        limits, output_node: as for ``series_circuit``.
+        model: the ``.MODEL`` line for the NPN; its name must match the device's
+            MODEL attribute (``QN``).
+
+    Returns the ``.CIR`` text, ready for ``simulate_schematic``.
+    """
+    from .parser import to_float
+
+    rc_v, re_v, vcc_v = to_float(rc), to_float(re), to_float(vcc)
+    if rc_v <= re_v:
+        raise SchematicError(
+            f"Rc ({rc}) must exceed Re ({re}) for gain > 1; a common-emitter "
+            f"stage with Rc <= Re attenuates."
+        )
+    if (r1 is None) != (r2 is None):
+        raise SchematicError("override the bias with both r1 and r2, or neither")
+
+    if r1 is None:
+        # Bias the collector at mid-supply so the stage stays in the active
+        # region for any Rc/Re. Ic set by Vc = Vcc/2; divider made stiff
+        # (10x the base current) so beta spread does not move the bias.
+        import re as _re
+        m = _re.search(r"\bBF\s*=\s*([0-9.eE+-]+)", model)
+        beta = float(m.group(1)) if m else 150.0
+        vbe = 0.7
+        ic = vcc_v / (2 * rc_v)          # mid-rail collector
+        ve = ic * re_v
+        vb = ve + vbe
+        idiv = 10 * (ic / beta)          # 10x base current through the divider
+        r1 = _fmt_ohms((vcc_v - vb) / idiv)
+        r2 = _fmt_ohms(vb / idiv)
+    # Device origin, chosen on the 8 px grid so every pin lands on it.
+    qx, qy = 400, 304
+    def pin(name: str) -> tuple[int, int]:
+        gx, gy = NPN_PINS[name]
+        return qx + gx * GRID, qy + gy * GRID
+
+    col, base, emit = pin("collector"), pin("base"), pin("emitter")
+    _require_on_grid(col, base, emit)
+
+    vcc_y = 104          # top supply rail
+    gnd_y = 520
+
+    # Model name must equal the device's MODEL attribute, or it references
+    # nothing; take it from the .MODEL line so the two cannot drift apart.
+    model_name = model.split()[1] if len(model.split()) > 1 else "QN"
+
+    d = [_comp("NPN", qx, qy, [("PART", "Q1"), ("MODEL", model_name)])]
+
+    # Supply: a DC Voltage Source, Minus to ground, Plus feeds the rail. The
+    # part is "VS", never "VCC" — a part and a node must not share a name.
+    d.append(_comp(SOURCE.shape, 96, vcc_y, [("PART", "VS"), (SOURCE.value_attr, f"DC={vcc}")]))
+    d.append(_wire(96, vcc_y, 96, vcc_y + 24))
+    d.append(_comp("Ground", 96, vcc_y + 24, []))
+    d.append(_wire(144, vcc_y, base[0], vcc_y))       # rail across to divider x
+    d.append(_wire(base[0], vcc_y, col[0], vcc_y))    # and on to the collector x
+
+    # Rc: rail -> collector
+    rc_y = 200
+    d.append(_comp("Resistor", col[0], rc_y, [("PART", "Rc"), ("RESISTANCE", rc)], rot=1))
+    d.append(_wire(col[0], vcc_y, col[0], rc_y))
+    d.append(_wire(col[0], rc_y + 48, col[0], col[1]))
+    d.append(_label(output_node, col[0], col[1]))
+
+    # Re: emitter -> ground
+    re_y = 376
+    d.append(_wire(emit[0], emit[1], emit[0], re_y))
+    d.append(_comp("Resistor", emit[0], re_y, [("PART", "Re"), ("RESISTANCE", re)], rot=1))
+    d.append(_wire(emit[0], re_y + 48, emit[0], gnd_y))
+    d.append(_comp("Ground", emit[0], gnd_y, []))
+
+    # Bias divider R1 (rail->base), R2 (base->gnd), on the base's x line.
+    d.append(_comp("Resistor", base[0], 160, [("PART", "R1"), ("RESISTANCE", r1)], rot=1))
+    d.append(_wire(base[0], vcc_y, base[0], 160))
+    d.append(_wire(base[0], 208, base[0], base[1]))
+    d.append(_comp("Resistor", base[0], 344, [("PART", "R2"), ("RESISTANCE", r2)], rot=1))
+    d.append(_wire(base[0], base[1], base[0], 344))
+    d.append(_wire(base[0], 392, base[0], gnd_y))
+    d.append(_comp("Ground", base[0], gnd_y, []))
+
+    # Input: source -> Cin -> base, node labelled IN before the cap.
+    d.append(_comp(SOURCE.shape, 96, base[1], [("PART", "Vin"), (SOURCE.value_attr, source)]))
+    d.append(_wire(96, base[1], 96, base[1] + 24))
+    d.append(_comp("Ground", 96, base[1] + 24, []))
+    d.append(_label("IN", 144, base[1]))
+    d.append(_wire(144, base[1], 200, base[1]))
+    d.append(_comp("Capacitor", 200, base[1], [("PART", "Cin"), ("CAPACITANCE", cin)]))
+    d.append(_wire(248, base[1], base[0], base[1]))
+
+    return _assemble(d, analysis, limits, output_node, model)
