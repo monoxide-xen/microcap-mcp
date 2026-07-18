@@ -249,6 +249,103 @@ def generate_transistor_amplifier(
 
 
 @mcp.tool()
+def generate_emitter_follower(
+    re: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vcc: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUT",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` emitter follower (common-collector BJT buffer).
+
+    Collector straight to the supply, output at the emitter. Voltage gain is
+    just under 1 (``Re/(Re+re')``); the value is current gain and low output
+    impedance — a buffer that drives a heavy load without loading the source.
+    The divider auto-biases the emitter at mid-supply so it can swing both ways.
+    Feed the result to ``simulate_schematic``.
+
+    Args:
+        re: emitter resistor (sets the bias current ``Vcc/2 / Re``).
+        r1, r2: base bias divider; leave unset to auto-bias, or give both.
+        vcc: supply voltage.
+        cin: input coupling capacitor.
+        source: input source VALUE, Micro-Cap syntax.
+        analysis: AC, Transient, or DC.
+        output_node: label for the emitter output node.
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.common_collector_amplifier(
+            re=re, r1=r1, r2=r2, vcc=vcc, cin=cin,
+            source=source, analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "run it with simulate_schematic, or save it as a .CIR to open in Micro-Cap",
+    }
+
+
+@mcp.tool()
+def generate_mosfet_amplifier(
+    rd: str = "4.7K",
+    rs: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vdd: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUT",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` common-source MOSFET gain stage (NMOS primitive).
+
+    Gate divider bias, source degeneration, AC-coupled input, body tied to
+    source. Midband gain is ``-gm*Rd/(1+gm*Rs)`` — roughly ``-Rd/Rs`` when
+    ``gm*Rs`` is large. By default the gate divider is computed from the model's
+    ``VTO``/``KP`` to bias the drain at mid-supply, so the device stays in
+    saturation and actually amplifies (a mis-biased MOSFET drops out of
+    saturation and the gain collapses). Feed the result to ``simulate_schematic``.
+
+    Args:
+        rd, rs: drain and (degeneration) source resistors.
+        r1, r2: gate bias divider; leave unset to auto-bias for a mid-supply
+            drain, or give both to override.
+        vdd: supply voltage.
+        cin: input coupling capacitor.
+        source: input source VALUE, Micro-Cap syntax (``"AC=1"`` for AC gain).
+        analysis: AC, Transient, or DC.
+        output_node: label for the drain output node.
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.common_source_amplifier(
+            rd=rd, rs=rs, r1=r1, r2=r2, vdd=vdd, cin=cin,
+            source=source, analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "run it with simulate_schematic, or save it as a .CIR to open in Micro-Cap",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",

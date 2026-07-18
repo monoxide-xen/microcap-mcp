@@ -174,8 +174,11 @@ def test_bad_gain_and_kind_rejected():
 # --------------------------------------------------------------------------
 
 from microcap_mcp.schematic import (  # noqa: E402
+    NMOS_PINS,
     NPN_PINS,
+    common_collector_amplifier,
     common_emitter_amplifier,
+    common_source_amplifier,
     _require_on_grid,
 )
 
@@ -251,3 +254,60 @@ def test_bias_is_computed_by_default_and_overridable():
     assert "RESISTANCE\nV=82K" in over and "RESISTANCE\nV=18K" in over
     with pytest.raises(SchematicError, match="both"):
         common_emitter_amplifier(r1="82K")           # only one given
+
+
+# --------------------------------------------------------------------------
+# emitter follower (common-collector) and MOSFET common-source
+# --------------------------------------------------------------------------
+
+
+def test_nmos_pins_match_the_library():
+    """From Standard.cmp: Drain (3,-3), Gate (0,0), Source (3,3), Body (3,0)."""
+    assert NMOS_PINS == {"drain": (3, -3), "gate": (0, 0), "source": (3, 3), "body": (3, 0)}
+
+
+def test_emitter_follower_output_is_the_emitter_not_the_collector():
+    """A follower has no collector resistor and takes its output at the emitter;
+    losing either turns it back into a common-emitter.
+    """
+    cir = common_collector_amplifier(re="1K")
+    assert cir.count("Name=NPN") == 1
+    assert "V=Rc" not in cir, "a follower has no collector resistor"
+    assert "V=Re" in cir
+    assert '[Grid Text]\nText="OUT"' in cir
+
+
+def test_mosfet_common_source_ties_body_to_source_and_binds_the_model():
+    cir = common_source_amplifier(rd="4.7K", rs="1K")
+    assert cir.count("Name=NMOS") == 1
+    for ref in ("V=Rd", "V=Rs", "V=R1", "V=R2", "V=Cin"):
+        assert ref in cir
+    assert "[Text Area]\nSection=0\nPage=1\nText=.MODEL MN NMOS" in cir
+    assert "MODEL\nV=MN" in cir
+
+
+def test_mosfet_device_pins_are_on_grid():
+    from microcap_mcp.schematic import GRID, _DEV_X, _DEV_Y
+    for gx, gy in NMOS_PINS.values():
+        x, y = _DEV_X + gx * GRID, _DEV_Y + gy * GRID
+        assert x % GRID == 0 and y % GRID == 0
+
+
+def test_mosfet_auto_bias_needs_vto_and_kp():
+    with pytest.raises(SchematicError, match="VTO and KP"):
+        common_source_amplifier(model=".MODEL MN NMOS (LEVEL=1)")
+    # ...but an explicit divider sidesteps the requirement
+    cir = common_source_amplifier(model=".MODEL MN NMOS (LEVEL=1)", r1="1MEG", r2="1MEG")
+    assert "Name=NMOS" in cir
+
+
+def test_all_stages_keep_part_and_node_names_distinct():
+    import re
+    for cir in (
+        common_emitter_amplifier(),
+        common_collector_amplifier(),
+        common_source_amplifier(),
+    ):
+        labels = set(re.findall(r'\[Grid Text\]\nText="([^"]+)"', cir))
+        parts = set(re.findall(r'PART\nV=(\w+)', cir))
+        assert not (labels & parts), (labels & parts)
