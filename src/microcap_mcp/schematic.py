@@ -195,6 +195,10 @@ OPAMP_MODEL = ".MODEL O1 OPA (LEVEL=1 A=1e6 ROUTAC=50 ROUTDC=75)"
 def _assemble(drawing: list[str], analysis: str, limits: str | None, output_node: str,
               model: str | None) -> str:
     """Wrap a drawing in the canonical section order an op-amp circuit needs."""
+    # Micro-Cap's [Limits] wants its own spelling (Transient/AC/DC); accept any
+    # casing so a tool passing "transient" produces a runnable circuit.
+    from .cir import CIR_ANALYSIS
+    analysis = CIR_ANALYSIS.get(analysis.lower(), analysis)
     xexp = "F" if analysis == "AC" else "T"
     header = (
         "[Main]\nFileType=CIR\nVersion=12.00\nProgram=Micro-Cap\n"
@@ -743,3 +747,74 @@ def differential_pair(
 def _fmt_v(value: float) -> str:
     """Trim a bias voltage to a clean literal (6.0 -> 6)."""
     return f"{value:g}"
+
+
+def current_mirror(
+    rref: str = "11.3K",
+    rload: str = "5K",
+    vcc: str = "12",
+    analysis: str = "Transient",
+    limits: str | None = None,
+    output_node: str = "OUTC",
+    model: str = NPN_MODEL,
+) -> str:
+    """A BJT current mirror: a diode-connected NPN sets a reference current from
+    ``Rref``, a matched NPN copies it into the load ``Rload``. The mirrored
+    current is ``Iout ≈ Iref = (Vcc - Vbe) / Rref`` (a few % high from the Early
+    effect, since the output transistor sees a larger Vce than the reference).
+
+    It is a DC bias block, so it is drawn for a DC operating point: read
+    ``V(OUTC)`` and the mirrored current is ``(Vcc - V(OUTC)) / Rload``.
+
+    Args:
+        rref: reference-leg resistor from the supply; sets ``Iref``.
+        rload: load on the output transistor's collector.
+        vcc: supply voltage.
+        analysis, limits, output_node, model: as for the other stages.
+
+    Returns the ``.CIR`` text.
+    """
+    from .parser import to_float
+
+    vcc_v, rref_v, rload_v = to_float(vcc), to_float(rref), to_float(rload)
+    iref = (vcc_v - _VBE) / rref_v
+    if iref * rload_v >= vcc_v - 0.2:
+        raise SchematicError(
+            "Rload drops the whole supply at the mirror current, saturating the "
+            "output transistor; lower Rload or Rref."
+        )
+
+    q1 = _npn_at(_DEV_X, _DEV_Y)
+    q2 = _npn_at(_DEV_X + 200, _DEV_Y)
+    for p in (q1, q2):
+        _require_on_grid(*p.values())
+    c1, b1, e1 = q1["collector"], q1["base"], q1["emitter"]
+    c2, b2, e2 = q2["collector"], q2["base"], q2["emitter"]
+    vcc_y, gnd_y = _VCC_Y, _GND_Y
+    name = _model_name(model, "QN")
+
+    d = [
+        _comp("NPN", _DEV_X, _DEV_Y, [("PART", "Q1"), ("MODEL", name)]),
+        _comp("NPN", _DEV_X + 200, _DEV_Y, [("PART", "Q2"), ("MODEL", name)]),
+        _comp(SOURCE.shape, 96, vcc_y, [("PART", "VP"), (SOURCE.value_attr, f"DC={vcc}")]),
+        _wire(96, vcc_y, 96, vcc_y + 24), _comp("Ground", 96, vcc_y + 24, []),
+        _wire(144, vcc_y, c1[0], vcc_y), _wire(c1[0], vcc_y, c2[0], vcc_y),
+    ]
+    # reference leg: Rref to Q1's collector, which is diode-connected to its base
+    d += [
+        _comp("Resistor", c1[0], 200, [("PART", "Rref"), ("RESISTANCE", rref)], rot=1),
+        _wire(c1[0], vcc_y, c1[0], 200), _wire(c1[0], 248, c1[0], c1[1]),
+        _wire(c1[0], c1[1], c1[0], b1[1]), _wire(c1[0], b1[1], b1[0], b1[1]),  # collector->base
+    ]
+    # mirror node: the two bases share a wire, end-to-end
+    d.append(_wire(b1[0], b1[1], b2[0], b2[1]))
+    # both emitters to ground
+    for e in (e1, e2):
+        d += [_wire(e[0], e[1], e[0], gnd_y), _comp("Ground", e[0], gnd_y, [])]
+    # output leg: Rload to Q2's collector, labelled
+    d += [
+        _comp("Resistor", c2[0], 200, [("PART", "Rload"), ("RESISTANCE", rload)], rot=1),
+        _wire(c2[0], vcc_y, c2[0], 200), _wire(c2[0], 248, c2[0], c2[1]),
+        _label(output_node, *c2),
+    ]
+    return _assemble(d, analysis, limits, output_node, model)

@@ -179,6 +179,7 @@ from microcap_mcp.schematic import (  # noqa: E402
     common_collector_amplifier,
     common_emitter_amplifier,
     common_source_amplifier,
+    current_mirror,
     differential_pair,
     _require_on_grid,
 )
@@ -350,3 +351,12 @@ def test_differential_pair_bias_guards():
         differential_pair(vb="0.3")        # below one Vbe: cannot turn on
     with pytest.raises(SchematicError):
         differential_pair(vb="20", vcc="12")  # base above supply
+
+
+def test_current_mirror_structure_and_guard():
+    cir = current_mirror(rref="11.3K", rload="5K")
+    assert cir.count("Name=NPN") == 2
+    assert "V=Rref" in cir and "V=Rload" in cir
+    assert '[Grid Text]\nText="OUTC"' in cir
+    with pytest.raises(SchematicError):
+        current_mirror(rref="1K", rload="100K")   # load saturates the output

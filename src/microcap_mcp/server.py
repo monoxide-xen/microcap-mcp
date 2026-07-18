@@ -396,6 +396,48 @@ def generate_differential_pair(
 
 
 @mcp.tool()
+def generate_current_mirror(
+    rref: str = "11.3K",
+    rload: str = "5K",
+    vcc: str = "12",
+    analysis: str = "transient",
+    output_node: str = "OUTC",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` BJT current mirror.
+
+    A diode-connected NPN sets a reference current ``Iref = (Vcc - Vbe)/Rref``;
+    a matched NPN copies it into ``Rload``. The mirrored current is
+    ``Iout ≈ Iref`` (a few % high from the Early effect). It is a DC bias block,
+    so run a transient/DC and read ``V(OUTC)``: the mirrored current is
+    ``(Vcc - V(OUTC)) / Rload``.
+
+    Args:
+        rref: reference-leg resistor; sets ``Iref``.
+        rload: load on the output transistor's collector.
+        vcc: supply voltage.
+        analysis: transient or dc (it is a bias block, not an AC stage).
+        output_node: label for the output collector node.
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.current_mirror(
+            rref=rref, rload=rload, vcc=vcc, analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "a DC bias block: run transient/dc and read V(OUTC); "
+                "the mirrored current is (Vcc - V(OUTC)) / Rload.",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",
