@@ -484,10 +484,13 @@ class MicroCap:
 
         images: dict[str, str] = {}
         if plot_image:
+            # Only the analysis plot (/IA on page "Main"). The schematic-drawing
+            # command (/IC) is documented but produces no file in batch mode here
+            # — tried across page names (Main, Page 1) and formats (gif/bmp/png/
+            # wmf/jpg), nothing lands — so it is not requested rather than
+            # promising a "schematic" image that never arrives.
             images["plot"] = f"{stem}_plot.jpg"
             parts.append(f'/IA Page="Main" Output="{images["plot"]}"')
-            images["schematic"] = f"{stem}_sch.jpg"
-            parts.append(f'/IC Page="Main" Output="{images["schematic"]}"')
 
         # See simulate(): the window must stay up for an image to render.
         log = self.run_batch(

@@ -174,6 +174,13 @@ A black JPEG is a valid file — a format check passes it. Only the size gives i
 
 So: only suppress the window when no image was requested.
 
+**`/IA` (analysis plot) works in batch; `/IC` (schematic drawing) does not.**
+`/IA Page="Main" Output="x.jpg"` renders the analysis plot reliably. The
+documented companion `/IC Page="<page>" Output=...` for the schematic drawing
+produced no file here across every page name (`Main`, `Page 1`) and format
+(gif/bmp/png/wmf/jpg) tried — the batch completes, but nothing lands. So the
+driver requests only the analysis plot; there is no schematic-image output.
+
 ## Generating a `.CIR` from scratch
 
 Facts that make schematic generation work (the driver ships a bounded

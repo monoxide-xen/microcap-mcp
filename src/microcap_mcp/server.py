@@ -640,6 +640,27 @@ def plot(netlist: str, analysis: str = "transient", defines: dict[str, str] | No
 
 
 @mcp.tool()
+def plot_schematic(cir: str, analysis: str = "ac", points: int | None = None) -> Any:
+    """Run a ``.CIR`` schematic and return Micro-Cap's rendered plot as a JPEG.
+
+    The picture companion to ``simulate_schematic``: use it to *look* at the
+    response of a schematic — a reference circuit you edited, or one drawn by
+    ``generate_transistor_amplifier`` / ``generate_differential_pair`` / the
+    other generators. For numbers to reason about, use ``simulate_schematic``.
+    """
+    try:
+        result = _driver().simulate_cir(cir, analysis=analysis, points=points, plot_image=True)
+    except (MicroCapError, ValueError) as e:
+        return {"error": str(e)}
+    if "plot" not in result.images:
+        return {"error": "Micro-Cap produced no plot image for this run."}
+    return {
+        "mime_type": "image/jpeg",
+        "data": base64.b64encode(result.images["plot"]).decode("ascii"),
+    }
+
+
+@mcp.tool()
 def simulate_example(
     name: str, analysis: str = "ac", max_points: int = 200, points: int = 200
 ) -> dict[str, Any]:

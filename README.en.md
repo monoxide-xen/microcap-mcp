@@ -83,7 +83,8 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 |---|---|
 | `simulate` | run a SPICE netlist, return waveform data and solver stats |
 | `sweep` | run a circuit across values of a `.DEFINE` parameter |
-| `plot` | return Micro-Cap's rendered plot as a JPEG |
+| `plot` | return Micro-Cap's rendered plot of a netlist as a JPEG |
+| `plot_schematic` | the same for a `.CIR` schematic (generated ones included) — the picture companion to `simulate_schematic` |
 | `simulate_schematic` | run an arbitrary `.CIR` schematic — edit a reference and run the copy |
 | `generate_schematic` | draw a `.CIR` from scratch: a source + R/C/L in series and parallel (pin geometry from MC's library) |
 | `generate_amplifier` | draw a `.CIR` op-amp amplifier (inverting / non-inverting) sized to a target gain |
@@ -166,7 +167,7 @@ Then `get_example` + `simulate_schematic` to edit a value and run the copy.
 uv run pytest
 ```
 
-125 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 27
+125 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 29
 integration tests that drive the whole stack against physics with a known answer and need
 Micro-Cap installed:
 
