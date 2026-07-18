@@ -181,6 +181,16 @@ produced no file here across every page name (`Main`, `Page 1`) and format
 (gif/bmp/png/wmf/jpg) tried — the batch completes, but nothing lands. So the
 driver requests only the analysis plot; there is no schematic-image output.
 
+**The schematic can be drawn from the shape library instead.** Each part's
+symbol geometry lives in `standard.shp` as a `[shapedef]`: a list of primitives
+(`Line`, `PolyOpen`/`PolyClosed`, `Arc`, `Ellipse`, `Rectangle`) plus `Root`
+references to composite sub-shapes (e.g. `NPN` = `Bjt.root` + an emitter-arrow
+polygon), all in the same pixel frame as the pins. Rendering those primitives
+reproduces Micro-Cap's own symbols exactly — which is how this project draws a
+`.CIR` to SVG without the GUI. One quirk: the `Ground` shape points *right*
+unrotated, and Micro-Cap never places it that way — shipped circuits rotate it
+(`Rot` 1 or 7, tines down).
+
 ## Generating a `.CIR` from scratch
 
 Facts that make schematic generation work (the driver ships a bounded

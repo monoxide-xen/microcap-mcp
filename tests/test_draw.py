@@ -94,6 +94,24 @@ def test_annotations_are_drawn_beside_their_node():
     assert ">6.51 V<" in svg
 
 
+def test_symbols_use_micro_caps_own_shape_geometry():
+    """Each part is drawn from its Micro-Cap shapedef, not an approximation."""
+    # the resistor is the library's zig-zag polyline
+    assert "14,-4 18,4 22,-4" in draw._shape_svg("Resistor")
+    # the source is an ellipse (the circle), the transistor a filled base bar
+    assert "<ellipse" in draw._shape_svg("SPICE_V")
+    assert "<rect" in draw._shape_svg("NPN") and "polygon" in draw._shape_svg("NPN")
+    # the op-amp resolves its Root sub-shapes
+    assert draw._shape_svg("Opamp5").count("<line") >= 10
+
+
+def test_every_generated_part_has_a_shape():
+    """A generated stage must not fall back to the placeholder box for any part."""
+    for maker in (sch.common_emitter_amplifier, sch.common_source_amplifier):
+        for c in draw.parse(maker()).comps:
+            assert c.name in draw._COMP_SHAPE, f"no shape for {c.name}"
+
+
 # --------------------------------------------------------------------------
 # operating-point annotation helpers (server-side, no Micro-Cap)
 # --------------------------------------------------------------------------
