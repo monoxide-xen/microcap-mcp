@@ -31,6 +31,8 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
     generate_amplifier,
+    generate_emitter_follower,
+    generate_mosfet_amplifier,
     generate_schematic,
     generate_transistor_amplifier,
     get_example,
@@ -243,3 +245,28 @@ def test_common_emitter_auto_bias_keeps_a_large_rc_in_the_active_region():
     r = simulate_schematic(g["schematic"], analysis="ac", points=25)
     assert "error" not in r, r
     assert _midband_gain(r) == pytest.approx(10, rel=0.15)
+
+
+def test_generated_emitter_follower_has_unity_gain():
+    """A common-collector buffer: voltage gain just under 1, output following
+    the input. Not a common-emitter (which would show gain >> 1).
+    """
+    g = generate_emitter_follower(re="1K", analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=25)
+    assert "error" not in r, r
+    assert _midband_gain(r) == pytest.approx(1.0, abs=0.06)
+
+
+@pytest.mark.parametrize("rd,rs,expected", [("4.7K", "1K", 3.26), ("10K", "1K", 6.08)])
+def test_generated_mosfet_common_source_hits_its_gain(rd, rs, expected):
+    """A common-source NMOS stage, gain -gm*Rd/(1+gm*Rs). The auto-bias must
+    hold it in saturation so it amplifies (not collapse to ~0 out of saturation).
+    """
+    g = generate_mosfet_amplifier(rd=rd, rs=rs, analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=25)
+    assert "error" not in r, r
+    got = _midband_gain(r)
+    assert got == pytest.approx(expected, rel=0.1), f"gain {got} vs ~{expected}"
+    assert got > 1.0, "an amplifier must have gain, not a saturated ~0"

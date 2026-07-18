@@ -24,6 +24,7 @@ each established by experiment:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 GRID = 8  # Micro-Cap's snap grid: pin coordinates are in these units.
@@ -321,6 +322,17 @@ def _fmt_ohms(value: float) -> str:
 
 NPN_PINS = {"collector": (3, -3), "base": (0, 0), "emitter": (3, 3)}
 NPN_MODEL = ".MODEL QN NPN (BF=150 IS=1E-14 VAF=100)"
+# MOSFET: Standard.cmp gives Drain (3,-3), Gate (0,0), Source (3,3), Body (3,0).
+NMOS_PINS = {"drain": (3, -3), "gate": (0, 0), "source": (3, 3), "body": (3, 0)}
+NMOS_MODEL = ".MODEL MN NMOS (LEVEL=1 VTO=1.5 KP=2M)"
+
+# Shared layout, all on the 8 px grid so every device pin lands on it. Two
+# columns: the control node (base/gate) at _CTRL_X, the top device pin
+# (collector/drain) at _TOP_X. A [Grid Text] label binds only on the grid.
+_DEV_X, _DEV_Y = 400, 304
+_CTRL_X, _TOP_X = _DEV_X, _DEV_X + 24
+_VCC_Y, _GND_Y = 104, 520
+_VBE = 0.7
 
 
 def _require_on_grid(*points: tuple[int, int]) -> None:
@@ -332,6 +344,77 @@ def _require_on_grid(*points: tuple[int, int]) -> None:
                 f"pin ({x},{y}) is off the {GRID}px grid; its node label would "
                 f"not bind. Place the device on grid-aligned coordinates."
             )
+
+
+def _dev_pin(pins: dict, name: str) -> tuple[int, int]:
+    gx, gy = pins[name]
+    return _DEV_X + gx * GRID, _DEV_Y + gy * GRID
+
+
+def _supply_rail(vcc: str) -> list[str]:
+    """DC supply at the left, its ground, and the rail run out to both taps."""
+    return [
+        _comp(SOURCE.shape, 96, _VCC_Y, [("PART", "VS"), (SOURCE.value_attr, f"DC={vcc}")]),
+        _wire(96, _VCC_Y, 96, _VCC_Y + 24),
+        _comp("Ground", 96, _VCC_Y + 24, []),
+        _wire(144, _VCC_Y, _CTRL_X, _VCC_Y),     # rail to the divider tap
+        _wire(_CTRL_X, _VCC_Y, _TOP_X, _VCC_Y),  # and on to the collector/drain tap
+    ]
+
+
+def _bias_divider(ctrl_y: int, r1: str, r2: str) -> list[str]:
+    """R1 (rail->control), R2 (control->ground) on the control-node column."""
+    return [
+        _comp("Resistor", _CTRL_X, 160, [("PART", "R1"), ("RESISTANCE", r1)], rot=1),
+        _wire(_CTRL_X, _VCC_Y, _CTRL_X, 160),
+        _wire(_CTRL_X, 208, _CTRL_X, ctrl_y),
+        _comp("Resistor", _CTRL_X, 344, [("PART", "R2"), ("RESISTANCE", r2)], rot=1),
+        _wire(_CTRL_X, ctrl_y, _CTRL_X, 344),
+        _wire(_CTRL_X, 392, _CTRL_X, _GND_Y),
+        _comp("Ground", _CTRL_X, _GND_Y, []),
+    ]
+
+
+def _ac_input(ctrl_y: int, source: str, cin: str) -> list[str]:
+    """AC source -> coupling cap -> control node; labels the input node IN."""
+    return [
+        _comp(SOURCE.shape, 96, ctrl_y, [("PART", "Vin"), (SOURCE.value_attr, source)]),
+        _wire(96, ctrl_y, 96, ctrl_y + 24),
+        _comp("Ground", 96, ctrl_y + 24, []),
+        _label("IN", 144, ctrl_y),
+        _wire(144, ctrl_y, 200, ctrl_y),
+        _comp("Capacitor", 200, ctrl_y, [("PART", "Cin"), ("CAPACITANCE", cin)]),
+        _wire(248, ctrl_y, _CTRL_X, ctrl_y),
+    ]
+
+
+def _model_name(model: str, default: str) -> str:
+    """The device MODEL attribute must equal the .MODEL name, or it references
+    nothing; take it from the line so the two cannot drift apart."""
+    parts = model.split()
+    return parts[1] if len(parts) > 1 else default
+
+
+def _top_resistor(part: str, value: str) -> list[str]:
+    """A resistor from the rail down to the top device pin (collector/drain),
+    with that pin labelled the output node's coordinate landing on it."""
+    top_y = 200
+    return [
+        _comp("Resistor", _TOP_X, top_y, [("PART", part), ("RESISTANCE", value)], rot=1),
+        _wire(_TOP_X, _VCC_Y, _TOP_X, top_y),
+        _wire(_TOP_X, top_y + 48, _TOP_X, _DEV_Y - 24),
+    ]
+
+
+def _bottom_resistor(part: str, value: str, bottom_x: int) -> list[str]:
+    """A resistor from the bottom device pin (emitter/source) down to ground."""
+    bot_y = 376
+    return [
+        _wire(bottom_x, _DEV_Y + 24, bottom_x, bot_y),
+        _comp("Resistor", bottom_x, bot_y, [("PART", part), ("RESISTANCE", value)], rot=1),
+        _wire(bottom_x, bot_y + 48, bottom_x, _GND_Y),
+        _comp("Ground", bottom_x, _GND_Y, []),
+    ]
 
 
 def common_emitter_amplifier(
@@ -370,7 +453,7 @@ def common_emitter_amplifier(
         analysis: AC, Transient, or DC.
         limits, output_node: as for ``series_circuit``.
         model: the ``.MODEL`` line for the NPN; its name must match the device's
-            MODEL attribute (``QN``).
+            MODEL attribute.
 
     Returns the ``.CIR`` text, ready for ``simulate_schematic``.
     """
@@ -382,79 +465,160 @@ def common_emitter_amplifier(
             f"Rc ({rc}) must exceed Re ({re}) for gain > 1; a common-emitter "
             f"stage with Rc <= Re attenuates."
         )
+    r1, r2 = _bjt_divider(r1, r2, vcc_v, ic=vcc_v / (2 * rc_v), re_v=re_v, model=model)
+
+    col = _dev_pin(NPN_PINS, "collector")
+    base = _dev_pin(NPN_PINS, "base")
+    emit = _dev_pin(NPN_PINS, "emitter")
+    _require_on_grid(col, base, emit)
+
+    d = [_comp("NPN", _DEV_X, _DEV_Y, [("PART", "Q1"), ("MODEL", _model_name(model, "QN"))])]
+    d += _supply_rail(vcc)
+    d += _top_resistor("Rc", rc)
+    d.append(_label(output_node, *col))
+    d += _bottom_resistor("Re", re, emit[0])
+    d += _bias_divider(base[1], r1, r2)
+    d += _ac_input(base[1], source, cin)
+    return _assemble(d, analysis, limits, output_node, model)
+
+
+def common_collector_amplifier(
+    re: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vcc: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUT",
+    model: str = NPN_MODEL,
+) -> str:
+    """An emitter follower (common-collector): collector straight to the supply,
+    output taken at the emitter. Voltage gain is just below 1 (``Re/(Re+re')``);
+    the point is current gain and a low output impedance — a buffer.
+
+    The divider biases the emitter at mid-supply so the output can swing both
+    ways. Pass ``r1``/``r2`` to override.
+
+    Args:
+        re: emitter resistor (sets the bias current, ``Vcc/2 / Re``).
+        r1, r2: base bias divider; ``None`` auto-biases for a mid-supply emitter.
+        vcc, cin, source, analysis, limits, output_node, model: as for
+            ``common_emitter_amplifier``.
+
+    Returns the ``.CIR`` text.
+    """
+    from .parser import to_float
+
+    re_v, vcc_v = to_float(re), to_float(vcc)
+    ve = vcc_v / 2                       # mid-supply emitter
+    r1, r2 = _bjt_divider(r1, r2, vcc_v, ic=ve / re_v, re_v=re_v, model=model)
+
+    col = _dev_pin(NPN_PINS, "collector")
+    base = _dev_pin(NPN_PINS, "base")
+    emit = _dev_pin(NPN_PINS, "emitter")
+    _require_on_grid(col, base, emit)
+
+    d = [_comp("NPN", _DEV_X, _DEV_Y, [("PART", "Q1"), ("MODEL", _model_name(model, "QN"))])]
+    d += _supply_rail(vcc)
+    d.append(_wire(_TOP_X, _VCC_Y, _TOP_X, col[1]))     # collector straight to the rail
+    d += _bottom_resistor("Re", re, emit[0])
+    d.append(_label(output_node, *emit))                # output at the emitter
+    d += _bias_divider(base[1], r1, r2)
+    d += _ac_input(base[1], source, cin)
+    return _assemble(d, analysis, limits, output_node, model)
+
+
+def common_source_amplifier(
+    rd: str = "4.7K",
+    rs: str = "1K",
+    r1: str | None = None,
+    r2: str | None = None,
+    vdd: str = "12",
+    cin: str = "10U",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUT",
+    model: str = NMOS_MODEL,
+) -> str:
+    """A common-source MOSFET gain stage: gate divider bias, source degeneration,
+    AC-coupled input, body tied to source. Midband gain is ``-gm*Rd/(1+gm*Rs)``,
+    i.e. roughly ``-Rd/Rs`` when ``gm*Rs`` is large.
+
+    The gate divider is computed from the model's ``VTO``/``KP`` to bias the
+    drain at mid-supply, so the device sits in saturation and actually amplifies
+    (a mis-biased MOSFET drops out of saturation and the gain collapses). Pass
+    ``r1``/``r2`` to override.
+
+    Args:
+        rd, rs: drain and (degeneration) source resistors.
+        r1, r2: gate bias divider; ``None`` auto-biases for a mid-supply drain.
+        vdd: supply voltage.
+        cin, source, analysis, limits, output_node: as for the BJT stages.
+        model: the NMOS ``.MODEL`` line; needs ``VTO`` and ``KP`` for auto-bias.
+
+    Returns the ``.CIR`` text.
+    """
+    import re as _re
+    from .parser import to_float
+
+    rd_v, rs_v, vdd_v = to_float(rd), to_float(rs), to_float(vdd)
     if (r1 is None) != (r2 is None):
         raise SchematicError("override the bias with both r1 and r2, or neither")
 
     if r1 is None:
-        # Bias the collector at mid-supply so the stage stays in the active
-        # region for any Rc/Re. Ic set by Vc = Vcc/2; divider made stiff
-        # (10x the base current) so beta spread does not move the bias.
-        import re as _re
-        m = _re.search(r"\bBF\s*=\s*([0-9.eE+-]+)", model)
-        beta = float(m.group(1)) if m else 150.0
-        vbe = 0.7
-        ic = vcc_v / (2 * rc_v)          # mid-rail collector
-        ve = ic * re_v
-        vb = ve + vbe
-        idiv = 10 * (ic / beta)          # 10x base current through the divider
-        r1 = _fmt_ohms((vcc_v - vb) / idiv)
-        r2 = _fmt_ohms(vb / idiv)
-    # Device origin, chosen on the 8 px grid so every pin lands on it.
-    qx, qy = 400, 304
-    def pin(name: str) -> tuple[int, int]:
-        gx, gy = NPN_PINS[name]
-        return qx + gx * GRID, qy + gy * GRID
+        vto_m = _re.search(r"\bVTO\s*=\s*([0-9.eE+-]+)", model)
+        kp_m = _re.search(r"\bKP\s*=\s*([0-9.eE+-]+[a-zA-Z]?)", model)
+        if not (vto_m and kp_m):
+            raise SchematicError(
+                "auto-bias needs VTO and KP in the NMOS model; pass r1 and r2 "
+                "explicitly for a model without them."
+            )
+        vto, kp = float(vto_m.group(1)), to_float(kp_m.group(1))
+        idd = vdd_v / (2 * rd_v)                # mid-rail drain
+        vov = math.sqrt(2 * idd / kp)          # LEVEL=1, W/L defaults to 1
+        vg = idd * rs_v + vto + vov            # Vs + Vgs
+        if vg >= vdd_v:
+            raise SchematicError(
+                "these Rd/Rs put the gate above the supply; lower Rs or Rd."
+            )
+        idiv = 10e-6                            # gate draws no DC current
+        r1 = _fmt_ohms((vdd_v - vg) / idiv)
+        r2 = _fmt_ohms(vg / idiv)
 
-    col, base, emit = pin("collector"), pin("base"), pin("emitter")
-    _require_on_grid(col, base, emit)
+    drain = _dev_pin(NMOS_PINS, "drain")
+    gate = _dev_pin(NMOS_PINS, "gate")
+    src = _dev_pin(NMOS_PINS, "source")
+    body = _dev_pin(NMOS_PINS, "body")
+    _require_on_grid(drain, gate, src, body)
 
-    vcc_y = 104          # top supply rail
-    gnd_y = 520
-
-    # Model name must equal the device's MODEL attribute, or it references
-    # nothing; take it from the .MODEL line so the two cannot drift apart.
-    model_name = model.split()[1] if len(model.split()) > 1 else "QN"
-
-    d = [_comp("NPN", qx, qy, [("PART", "Q1"), ("MODEL", model_name)])]
-
-    # Supply: a DC Voltage Source, Minus to ground, Plus feeds the rail. The
-    # part is "VS", never "VCC" — a part and a node must not share a name.
-    d.append(_comp(SOURCE.shape, 96, vcc_y, [("PART", "VS"), (SOURCE.value_attr, f"DC={vcc}")]))
-    d.append(_wire(96, vcc_y, 96, vcc_y + 24))
-    d.append(_comp("Ground", 96, vcc_y + 24, []))
-    d.append(_wire(144, vcc_y, base[0], vcc_y))       # rail across to divider x
-    d.append(_wire(base[0], vcc_y, col[0], vcc_y))    # and on to the collector x
-
-    # Rc: rail -> collector
-    rc_y = 200
-    d.append(_comp("Resistor", col[0], rc_y, [("PART", "Rc"), ("RESISTANCE", rc)], rot=1))
-    d.append(_wire(col[0], vcc_y, col[0], rc_y))
-    d.append(_wire(col[0], rc_y + 48, col[0], col[1]))
-    d.append(_label(output_node, col[0], col[1]))
-
-    # Re: emitter -> ground
-    re_y = 376
-    d.append(_wire(emit[0], emit[1], emit[0], re_y))
-    d.append(_comp("Resistor", emit[0], re_y, [("PART", "Re"), ("RESISTANCE", re)], rot=1))
-    d.append(_wire(emit[0], re_y + 48, emit[0], gnd_y))
-    d.append(_comp("Ground", emit[0], gnd_y, []))
-
-    # Bias divider R1 (rail->base), R2 (base->gnd), on the base's x line.
-    d.append(_comp("Resistor", base[0], 160, [("PART", "R1"), ("RESISTANCE", r1)], rot=1))
-    d.append(_wire(base[0], vcc_y, base[0], 160))
-    d.append(_wire(base[0], 208, base[0], base[1]))
-    d.append(_comp("Resistor", base[0], 344, [("PART", "R2"), ("RESISTANCE", r2)], rot=1))
-    d.append(_wire(base[0], base[1], base[0], 344))
-    d.append(_wire(base[0], 392, base[0], gnd_y))
-    d.append(_comp("Ground", base[0], gnd_y, []))
-
-    # Input: source -> Cin -> base, node labelled IN before the cap.
-    d.append(_comp(SOURCE.shape, 96, base[1], [("PART", "Vin"), (SOURCE.value_attr, source)]))
-    d.append(_wire(96, base[1], 96, base[1] + 24))
-    d.append(_comp("Ground", 96, base[1] + 24, []))
-    d.append(_label("IN", 144, base[1]))
-    d.append(_wire(144, base[1], 200, base[1]))
-    d.append(_comp("Capacitor", 200, base[1], [("PART", "Cin"), ("CAPACITANCE", cin)]))
-    d.append(_wire(248, base[1], base[0], base[1]))
-
+    d = [_comp("NMOS", _DEV_X, _DEV_Y, [("PART", "M1"), ("MODEL", _model_name(model, "MN"))])]
+    d += _supply_rail(vdd)
+    d += _top_resistor("Rd", rd)
+    d.append(_label(output_node, *drain))
+    d += _bottom_resistor("Rs", rs, src[0])
+    d.append(_wire(*body, *src))                        # body tied to source
+    d += _bias_divider(gate[1], r1, r2)
+    d += _ac_input(gate[1], source, cin)
     return _assemble(d, analysis, limits, output_node, model)
+
+
+def _bjt_divider(r1, r2, vcc_v, ic, re_v, model):
+    """Resolve the base divider: given (or auto-sized for the operating point).
+
+    Auto-sizing puts the requested current through the collector/emitter and a
+    stiff divider (10x the base current) at the base, so the bias holds against
+    the beta spread.
+    """
+    if (r1 is None) != (r2 is None):
+        raise SchematicError("override the bias with both r1 and r2, or neither")
+    if r1 is not None:
+        return r1, r2
+    import re as _re
+    m = _re.search(r"\bBF\s*=\s*([0-9.eE+-]+)", model)
+    beta = float(m.group(1)) if m else 150.0
+    vb = ic * re_v + _VBE
+    idiv = 10 * (ic / beta)
+    return _fmt_ohms((vcc_v - vb) / idiv), _fmt_ohms(vb / idiv)

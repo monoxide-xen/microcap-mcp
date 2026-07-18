@@ -88,6 +88,8 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `generate_schematic` | draw a `.CIR` from scratch: a source + R/C/L in series and parallel (pin geometry from MC's library) |
 | `generate_amplifier` | draw a `.CIR` op-amp amplifier (inverting / non-inverting) sized to a target gain |
 | `generate_transistor_amplifier` | draw a `.CIR` common-emitter BJT stage; the bias divider is auto-sized to a mid-supply collector |
+| `generate_emitter_follower` | draw a `.CIR` emitter follower (buffer: gain ≈ 1, low output impedance) |
+| `generate_mosfet_amplifier` | draw a `.CIR` common-source MOSFET stage; gate bias derived from the model's VTO/KP to hold saturation |
 | `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
 | `describe_example` | which analyses a circuit supports and what it plots, without running it |
 | `list_domains` | the 43 reference domains and their sizes |
@@ -161,7 +163,7 @@ Then `get_example` + `simulate_schematic` to edit a value and run the copy.
 uv run pytest
 ```
 
-113 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 20
+119 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 23
 integration tests that drive the whole stack against physics with a known answer and need
 Micro-Cap installed:
 
