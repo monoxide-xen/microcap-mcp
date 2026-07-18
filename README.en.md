@@ -2,10 +2,7 @@
 
 # microcap-mcp
 
-**An MCP server for the Micro-Cap 12 SPICE simulator**
-
-Lets an LLM agent simulate analog circuits: run analyses, sweep parameters,
-get waveform data and plots.
+**An AI agent builds, simulates and draws analog circuits in Micro-Cap 12.**
 
 [![tests](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/monoxide-xen/microcap-mcp/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -15,18 +12,27 @@ get waveform data and plots.
 
 [Русский](README.md) · **English**
 
+<img src="docs/assets/hero-ce.svg" width="410" alt="A generated common-emitter stage, drawn 1:1 with Micro-Cap, with its operating point overlaid"> <img src="docs/assets/plot-ac.jpg" width="410" alt="Frequency response computed by Micro-Cap">
+
+<sub>The schematic is drawn by the server itself (1:1 with Micro-Cap, operating point overlaid) · the plot is computed by Micro-Cap</sub>
+
 </div>
 
 ---
 
-Works through Micro-Cap's own batch mode (`MC12 @batch.bat`) — no GUI automation, no
-modification of the program. Runs are headless and the process exits by itself.
+Works through Micro-Cap's own batch mode (`MC12 @batch.bat`) — headless, no GUI automation, no modification of the program.
 
-## Requirements
+## What it does
 
-- Windows
-- Python 3.11+
-- An installed copy of [Micro-Cap 12](https://spectrum-soft.com/) (freeware)
+🔧 **Builds circuits from scratch** — 8 stage generators (common-emitter, follower, MOSFET, differential pair, current mirror, cascode, op-amp, RLC) with automatic biasing. Each is checked against theory: gain, operating point, resonance.
+
+📊 **Simulates** — transient / AC / DC / distortion / stability, operating point, sweeps. Complex output as `{re, im}`, solver diagnostics.
+
+🎨 **Draws** — renders a `.CIR` to SVG **1:1 with Micro-Cap**: the native symbols from MC's shape library, the dot grid, every rotation and reflection, the label layout. Overlays operating-point voltages. MC's `/IC` can't export a drawing in batch — this can.
+
+<div align="center">
+<img src="docs/assets/diffpair.svg" height="200" alt="Differential pair"> <img src="docs/assets/cascode.svg" height="200" alt="Cascode"> <img src="docs/assets/opamp.svg" height="200" alt="Op-amp amplifier">
+</div>
 
 ## Install
 
@@ -36,28 +42,7 @@ cd microcap-mcp
 uv sync
 ```
 
-Register it with your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "microcap": {
-      "command": "uv",
-      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"]
-    }
-  }
-}
-```
-
-### Where Micro-Cap lives
-
-The driver scans the usual places (`MC12`, `Micro-Cap 12` at drive roots and under
-`Program Files`) and accepts either `mc12_64.exe` or `mc12.exe`. But Micro-Cap is not
-installed under `Program Files` — it writes to its own folder and needs it writable — so
-in practice it ends up anywhere.
-
-If the scan misses it, point `MICROCAP_HOME` at the folder containing the executable; it
-is used verbatim:
+Needs Windows, Python 3.11+ and an installed copy of [Micro-Cap 12](https://spectrum-soft.com/) (freeware). Register it with your MCP client:
 
 ```jsonc
 {
@@ -65,144 +50,39 @@ is used verbatim:
     "microcap": {
       "command": "uv",
       "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"],
-      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // ← your path
+      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // if the scan misses it
     }
   }
 }
 ```
 
-Or as an environment variable — PowerShell:
-
-```powershell
-$env:MICROCAP_HOME = "E:\Tools\MC12"
-```
-
 ## Tools
 
-| Tool | Does |
+| | |
 |---|---|
-| `simulate` | run a SPICE netlist, return waveform data and solver stats |
-| `sweep` | run a circuit across values of a `.DEFINE` parameter |
-| `plot` | return Micro-Cap's rendered plot of a netlist as a JPEG |
-| `plot_schematic` | the same for a `.CIR` schematic (generated ones included) — the picture companion to `simulate_schematic` |
-| `draw_schematic` | render the `.CIR` schematic *itself* as SVG using Micro-Cap's own symbols (grid, rotations/reflections, labels) — which MC can't do in batch |
-| `annotate_schematic` | the same SVG, with each labelled node's DC operating-point voltage drawn beside it — a marked-up schematic |
-| `simulate_schematic` | run an arbitrary `.CIR` schematic — edit a reference and run the copy |
-| `generate_schematic` | draw a `.CIR` from scratch: a source + R/C/L in series and parallel (pin geometry from MC's library) |
-| `generate_amplifier` | draw a `.CIR` op-amp amplifier (inverting / non-inverting) sized to a target gain |
-| `generate_transistor_amplifier` | draw a `.CIR` common-emitter BJT stage; the bias divider is auto-sized to a mid-supply collector |
-| `generate_emitter_follower` | draw a `.CIR` emitter follower (buffer: gain ≈ 1, low output impedance) |
-| `generate_mosfet_amplifier` | draw a `.CIR` common-source MOSFET stage; gate bias derived from the model's VTO/KP to hold saturation |
-| `generate_differential_pair` | draw a `.CIR` BJT long-tailed pair (antiphase OUTP/OUTN outputs, auto-biased to mid-supply) |
-| `generate_current_mirror` | draw a `.CIR` BJT current mirror (Iout ≈ Iref = (Vcc−Vbe)/Rref) |
-| `generate_cascode` | draw a `.CIR` cascode (common-emitter under common-base): common-emitter gain, but higher bandwidth and output impedance |
-| `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
-| `describe_example` | which analyses a circuit supports and what it plots, without running it |
-| `list_domains` | the 43 reference domains and their sizes |
-| `search_examples` | search the reference circuits |
-| `get_example` | fetch a reference circuit's source |
+| `simulate` · `sweep` · `plot` | run a SPICE netlist, sweep a `.DEFINE`, render a JPEG plot |
+| `generate_transistor_amplifier` · `_emitter_follower` · `_mosfet_amplifier` | BJT / MOSFET stages, auto-biased to a mid-supply operating point |
+| `generate_differential_pair` · `_current_mirror` · `_cascode` · `_amplifier` | differential pair, current mirror, cascode, op-amp amplifier |
+| `generate_schematic` | a source + R/C/L in series and parallel (RC/RL/RLC, dividers, tanks) |
+| `simulate_schematic` · `plot_schematic` | run / plot an arbitrary `.CIR` |
+| `draw_schematic` · `annotate_schematic` | render a `.CIR` to SVG (1:1 with MC) · with the operating point on the drawing |
+| `simulate_example` · `search_examples` · `get_example` · `describe_example` · `list_domains` | the ~490 reference circuits shipped with MC: search, source, analyses |
 
-Complex output (AC, S-parameters, Smith charts) is returned as `{"re", "im"}`.
-
-Supported analyses: `transient`, `ac`, `dc`, `harmonic_distortion`,
-`intermodulation_distortion`, `stability`.
-
-Beyond the tools the server exposes **resources** — `microcap://guide` (how not
-to let Micro-Cap silently mislead you: choosing an analysis, trusting the
-solver, reading complex data, SPICE rules) and `microcap://domains` (a map of
-the 43 reference-circuit domains) — and an `analyse_circuit` **prompt** for the
-common workflow.
-
-## Example
-
-The agent writes a netlist and gets numbers back:
-
-```
-RC Lowpass
-V1 IN 0 AC 1
-R1 IN OUT 1K
-C1 OUT 0 159.155N
-.AC DEC 21 10 100K
-.PRINT AC V(OUT)
-.END
-```
-
-```jsonc
-// simulate(netlist, analysis="ac")
-{
-  "columns": ["F", "V(OUT)"],
-  "units":   ["Hz", "V"],
-  "points":  85,
-  "data": {
-    "F":      [10.0, 100.0, 1000.0, 10000.0],
-    "V(OUT)": [1.0,  0.995, 0.70710, 0.09950]
-  },
-  "solver": { "nodes": 2, "iterations": 88, "rejected_solutions": 0,
-              "rejected_fraction": 0.0, "iterations_per_solution": 2.0 }
-}
-```
-
-The RC cutoff `1/(2πRC)` is 1000 Hz, where the gain should be `1/√2 ≈ 0.70711`.
-
-`solver.rejected_fraction` is the share of timesteps the solver retried. It is a signature
-of topology, not an alarm: switching converters sit at 18–23%, linear circuits at 0–5% —
-the solver cuts the step at each switching edge, which is normal. Past 15%, a note is
-added to the response.
-
-## Worked example: characterise a filter
-
-The loop `microcap://guide` prescribes — find a reference, don't invent one:
-
-```python
-search_examples("bandpass")          # → BPFILT (Filters domain); the search is
-                                     #   semantic even though the name is cryptic
-describe_example("BPFILT")           # → supports AC; plots Mag(v(S3)/v(In))
-r = simulate_example("BPFILT", analysis="ac")
-```
-
-From the data: peak gain **37.5 at 627 Hz**, −3 dB band **453…1115 Hz** (Q ≈ 0.95).
-Then `get_example` + `simulate_schematic` to edit a value and run the copy.
+Plus **resources** `microcap://guide` and `microcap://domains` and an `analyse_circuit` **prompt** — so the agent doesn't let Micro-Cap silently mislead it.
 
 ## Tests
 
 ```bash
-uv run pytest
-```
-
-138 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader, SVG render — pure text) plus 30
-integration tests that drive the whole stack against physics with a known answer and need
-Micro-Cap installed:
-
-```bash
-MICROCAP_HOME=C:/MC12 uv run pytest tests/test_integration.py
+uv run pytest        # 138 unit with no Micro-Cap; +30 integration against physics (needs MC)
 ```
 
 Without Micro-Cap the integration tests skip, so CI stays green.
 
-## Corpus evaluation
+## How it works
 
-`eval/harness.py` runs every circuit Micro-Cap ships and buckets the failures by cause:
-
-```bash
-uv run python eval/harness.py --all --window   # full sweep with a progress window
-uv run python eval/harness.py --domain Filters # a single domain
-```
-
-Current result: 762 of 866 runs the circuit is able to answer (88%). Most remaining
-failures are not on the driver's side — circuits with no ground, broken node references,
-unconfigured DC blocks.
-
-`--compare <previous.jsonl>` diffs the result per circuit: the headline pass rate hides
-trades where one change fixes some circuits and breaks others.
-
-## Documentation
-
-- [Micro-Cap notes](docs/micro-cap-notes.en.md) — behaviour that is not in the manual,
-  and in places contradicts it. Useful to anyone automating MC12.
+- [Micro-Cap notes](docs/micro-cap-notes.en.md) — behaviour that is not in the manual, and in places contradicts it.
+- `eval/harness.py` — runs all ~490 shipped circuits and buckets the failures by cause (88% answer today).
 
 ## Licence
 
-[MIT](LICENSE), for the code in this repository.
-
-Micro-Cap 12 belongs to Spectrum Software. It is not included, redistributed or
-modified: this project uses its documented command-line interface.
+[MIT](LICENSE) for the code in this repository. Micro-Cap 12 belongs to Spectrum Software — not included, redistributed or modified: this uses its documented CLI.
