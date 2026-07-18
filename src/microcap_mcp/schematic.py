@@ -818,3 +818,99 @@ def current_mirror(
         _label(output_node, *c2),
     ]
     return _assemble(d, analysis, limits, output_node, model)
+
+
+def cascode_amplifier(
+    rc: str = "4.7K",
+    re: str = "1K",
+    vcc: str = "12",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    limits: str | None = None,
+    output_node: str = "OUT",
+    model: str = NPN_MODEL,
+) -> str:
+    """A cascode: a common-emitter transistor (Q1) stacked under a common-base
+    transistor (Q2). The midband gain is the common-emitter's, ``-Rc/(Re+re')``,
+    but Q2 shields Q1's collector from the output swing, so the Miller
+    capacitance nearly vanishes and both output impedance and bandwidth rise —
+    the reason the topology exists.
+
+    All bias points are computed: Q1 for a mid-supply output, and Q2's base for
+    a couple of volts of headroom across Q1, so both sit in the active region.
+    Both bases are driven by ``Voltage Source``s carrying their DC bias directly
+    (Q1's also carries the AC signal), so no coupling capacitors or dividers.
+
+    Args:
+        rc, re: collector load and emitter degeneration; their ratio is the gain.
+        vcc: supply voltage.
+        source: AC drive VALUE added to Q1's base bias (``"AC=1"``).
+        analysis, limits, output_node, model: as for the other stages.
+
+    Returns the ``.CIR`` text.
+    """
+    from .parser import to_float
+
+    rc_v, re_v, vcc_v = to_float(rc), to_float(re), to_float(vcc)
+    if rc_v <= re_v:
+        raise SchematicError(f"Rc ({rc}) must exceed Re ({re}) for gain > 1")
+
+    ic = vcc_v / (2 * rc_v)          # mid-supply output
+    ve1 = ic * re_v
+    vb1 = ve1 + _VBE
+    vx = ve1 + 2.5                   # Q1 collector = Q2 emitter: ~2.5 V of Vce
+    vb2 = vx + _VBE
+    out_dc = vcc_v / 2
+    if vb2 >= vcc_v or out_dc <= vx:
+        raise SchematicError(
+            "not enough supply headroom to stack a cascode at these Rc/Re; "
+            "raise vcc or lower Re/Rc."
+        )
+
+    # Q1 (common-emitter) sits below Q2 (common-base), sharing a column so Q1's
+    # collector wires straight up to Q2's emitter.
+    q1 = _npn_at(_DEV_X, _DEV_Y + 96)
+    q2 = _npn_at(_DEV_X, _DEV_Y)
+    for p in (q1, q2):
+        _require_on_grid(*p.values())
+    c1, b1, e1 = q1["collector"], q1["base"], q1["emitter"]
+    c2, b2, e2 = q2["collector"], q2["base"], q2["emitter"]
+    vcc_y, gnd_y = _VCC_Y, _GND_Y
+    name = _model_name(model, "QN")
+
+    d = [
+        _comp("NPN", _DEV_X, _DEV_Y + 96, [("PART", "Q1"), ("MODEL", name)]),
+        _comp("NPN", _DEV_X, _DEV_Y, [("PART", "Q2"), ("MODEL", name)]),
+        _comp(SOURCE.shape, 96, vcc_y, [("PART", "VP"), (SOURCE.value_attr, f"DC={vcc}")]),
+        _wire(96, vcc_y, 96, vcc_y + 24), _comp("Ground", 96, vcc_y + 24, []),
+        _wire(144, vcc_y, c2[0], vcc_y),
+    ]
+    # Rc from the rail to Q2's collector (the output)
+    d += [
+        _comp("Resistor", c2[0], 200, [("PART", "Rc"), ("RESISTANCE", rc)], rot=1),
+        _wire(c2[0], vcc_y, c2[0], 200), _wire(c2[0], 248, c2[0], c2[1]),
+        _label(output_node, *c2),
+    ]
+    # the cascode stack: Q2's emitter down to Q1's collector
+    d.append(_wire(e2[0], e2[1], c1[0], c1[1]))
+    # Re from Q1's emitter to ground
+    re_y = e1[1] + 24
+    d += [
+        _wire(e1[0], e1[1], e1[0], re_y),
+        _comp("Resistor", e1[0], re_y, [("PART", "Re"), ("RESISTANCE", re)], rot=1),
+        _wire(e1[0], re_y + 48, e1[0], gnd_y), _comp("Ground", e1[0], gnd_y, []),
+    ]
+    # Q1 base: DC bias + AC signal in one source; Q2 base: fixed DC bias.
+    for base, part, value, label in (
+        (b1, "Vin", f"DC={_fmt_v(vb1)} {source}", "IN"),
+        (b2, "Vb2", f"DC={_fmt_v(vb2)}", None),
+    ):
+        d += [
+            _comp(SOURCE.shape, base[0] - 96, base[1], [("PART", part), (SOURCE.value_attr, value)]),
+            _wire(base[0] - 96, base[1], base[0] - 96, base[1] + 24),
+            _comp("Ground", base[0] - 96, base[1] + 24, []),
+            _wire(base[0] - 48, base[1], base[0], base[1]),
+        ]
+        if label:
+            d.append(_label(label, base[0] - 48, base[1]))
+    return _assemble(d, analysis, limits, output_node, model)
