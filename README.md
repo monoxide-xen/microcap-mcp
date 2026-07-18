@@ -58,7 +58,7 @@ uv sync
 
 ## Инструменты
 
-| | |
+| Инструмент | Что делает |
 |---|---|
 | `simulate` · `sweep` · `plot` | посчитать SPICE-нетлист, свип по `.DEFINE`, график в JPEG |
 | `generate_transistor_amplifier` · `_emitter_follower` · `_mosfet_amplifier` | каскады на транзисторе / MOSFET, авто-смещение под середину питания |

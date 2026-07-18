@@ -58,7 +58,7 @@ Needs Windows, Python 3.11+ and an installed copy of [Micro-Cap 12](https://spec
 
 ## Tools
 
-| | |
+| Tool | Does |
 |---|---|
 | `simulate` · `sweep` · `plot` | run a SPICE netlist, sweep a `.DEFINE`, render a JPEG plot |
 | `generate_transistor_amplifier` · `_emitter_follower` · `_mosfet_amplifier` | BJT / MOSFET stages, auto-biased to a mid-supply operating point |
