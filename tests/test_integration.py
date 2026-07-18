@@ -31,6 +31,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
     generate_amplifier,
+    generate_current_mirror,
     generate_differential_pair,
     generate_emitter_follower,
     generate_mosfet_amplifier,
@@ -297,3 +298,20 @@ def test_generated_differential_pair_is_balanced_and_antiphase():
     assert abs(vp) == pytest.approx(abs(vn), rel=0.1)
     # antiphase: vp ≈ -vn, so their sum nearly cancels
     assert abs(vp + vn) < 0.15 * abs(vp), f"outputs not antiphase: {vp}, {vn}"
+
+
+def test_generated_current_mirror_copies_the_reference_current():
+    """A diode-connected reference and a matched output transistor: the output
+    current must track the reference, Iout ≈ Iref = (Vcc - Vbe)/Rref.
+    """
+    from microcap_mcp.parser import to_float
+    vcc, rref, rload = 12.0, "11.3K", "5K"
+    g = generate_current_mirror(rref=rref, rload=rload, vcc=str(int(vcc)), analysis="transient")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="transient", points=10)
+    assert "error" not in r, r
+    vout = r["data"]["V(OUTC)"][0]
+    iref = (vcc - 0.7) / to_float(rref)
+    iout = (vcc - vout) / to_float(rload)
+    # within ~10%: base-current and Early-effect error only
+    assert iout == pytest.approx(iref, rel=0.1), f"Iout {iout*1e3:.3f}mA vs Iref {iref*1e3:.3f}mA"
