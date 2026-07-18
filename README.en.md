@@ -85,7 +85,7 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `sweep` | run a circuit across values of a `.DEFINE` parameter |
 | `plot` | return Micro-Cap's rendered plot of a netlist as a JPEG |
 | `plot_schematic` | the same for a `.CIR` schematic (generated ones included) — the picture companion to `simulate_schematic` |
-| `draw_schematic` | render the `.CIR` schematic *itself* as SVG (symbols for R/C/L, sources, ground, BJT/MOSFET/op-amp) — which Micro-Cap can't do in batch |
+| `draw_schematic` | render the `.CIR` schematic *itself* as SVG using Micro-Cap's own symbols (grid, rotations/reflections, labels) — which MC can't do in batch |
 | `annotate_schematic` | the same SVG, with each labelled node's DC operating-point voltage drawn beside it — a marked-up schematic |
 | `simulate_schematic` | run an arbitrary `.CIR` schematic — edit a reference and run the copy |
 | `generate_schematic` | draw a `.CIR` from scratch: a source + R/C/L in series and parallel (pin geometry from MC's library) |
@@ -169,7 +169,7 @@ Then `get_example` + `simulate_schematic` to edit a value and run the copy.
 uv run pytest
 ```
 
-137 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader, SVG render — pure text) plus 30
+138 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader, SVG render — pure text) plus 30
 integration tests that drive the whole stack against physics with a known answer and need
 Micro-Cap installed:
 
