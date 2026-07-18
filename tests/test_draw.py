@@ -86,3 +86,32 @@ def test_unknown_part_is_drawn_not_dropped():
 def test_empty_circuit_renders_without_crashing():
     svg = draw.render_svg("[Main]\nFileType=CIR\n")
     assert svg.startswith("<svg")
+
+
+def test_annotations_are_drawn_beside_their_node():
+    cir = sch.common_emitter_amplifier(rc="4.7K", re="1K")
+    svg = draw.render_svg(cir, annotations={"OUT": "6.51 V"})
+    assert ">6.51 V<" in svg
+
+
+# --------------------------------------------------------------------------
+# operating-point annotation helpers (server-side, no Micro-Cap)
+# --------------------------------------------------------------------------
+
+from microcap_mcp.server import _fmt_volt, _strip_sections  # noqa: E402
+
+
+def test_strip_sections_removes_whole_blocks():
+    cir = sch.common_emitter_amplifier(rc="4.7K", re="1K")
+    out = _strip_sections(cir, {"Limits", "WaveForm"})
+    assert "[Limits]" not in out and "[WaveForm]" not in out
+    # the drawing, page and model survive
+    assert "Name=NPN" in out and "[Page]" in out and "[Text Area]" in out
+
+
+def test_fmt_volt():
+    assert _fmt_volt(6.514) == "6.51 V"
+    assert _fmt_volt(-0.3) == "-300 mV"
+    assert _fmt_volt(0.0) == "0.00 V"
+    assert _fmt_volt(float("nan")) is None
+    assert _fmt_volt(None) is None

@@ -29,6 +29,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 
 # Import the server tools the way an MCP client calls them.
 from microcap_mcp.server import (  # noqa: E402
+    annotate_schematic,
     describe_example,
     generate_amplifier,
     generate_cascode,
@@ -357,3 +358,18 @@ def test_plot_schematic_renders_a_generated_circuit():
     g = generate_transistor_amplifier(rc="4.7K", re="1K", analysis="AC")
     assert _is_real_plot(plot_schematic(g["schematic"], analysis="ac")), \
         "plot_schematic must render the generated circuit"
+
+
+def test_annotate_schematic_reads_the_operating_point():
+    """A common-emitter stage biased for a mid-supply collector: the annotation
+    must find V(OUT) near Vcc/2 and draw it onto the SVG.
+    """
+    g = generate_transistor_amplifier(rc="4.7K", re="1K", analysis="AC")
+    r = annotate_schematic(g["schematic"])
+    assert "error" not in r, r
+    op = r["operating_point"]
+    assert "OUT" in op, op
+    volts = float(op["OUT"].split()[0])
+    assert 4.0 < volts < 8.0, f"collector bias {op['OUT']} not near mid-supply"
+    # the value is drawn on the picture
+    assert f'>{op["OUT"]}<' in r["svg"]

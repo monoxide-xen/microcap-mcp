@@ -285,8 +285,13 @@ def _build_axis(coords: list[int], protected: list[tuple[int, int]], cap: int = 
     return f
 
 
-def render_svg(cir_text: str) -> str:
-    """Render a ``.CIR`` as a standalone SVG string."""
+def render_svg(cir_text: str, annotations: dict[str, str] | None = None) -> str:
+    """Render a ``.CIR`` as a standalone SVG string.
+
+    ``annotations`` maps a node label to a string (e.g. an operating-point
+    voltage) drawn beside that node, turning the drawing into a marked-up
+    schematic.
+    """
     sch = parse(cir_text)
 
     # Collect every coordinate that appears, and the axis span each component
@@ -391,10 +396,14 @@ def render_svg(cir_text: str) -> str:
             out.append(f'<text x="{c.x + 6}" y="{c.y - 14}" font-size="11" '
                        f'stroke="none">{_esc(cap)}</text>')
 
-    # node labels (bold, offset so they clear the wire)
+    # node labels (bold, offset so they clear the wire), with an optional
+    # operating-point annotation beneath in a distinct colour
     for text, x, y in sch.labels:
         out.append(f'<text x="{x + 4}" y="{y - 4}" font-size="12" font-weight="bold" '
                    f'fill="#0645ad" stroke="none">{_esc(text)}</text>')
+        if annotations and text in annotations:
+            out.append(f'<text x="{x + 4}" y="{y + 11}" font-size="11" '
+                       f'fill="#c1121f" stroke="none">{_esc(annotations[text])}</text>')
 
     out.append("</g></svg>")
     return "\n".join(out)
