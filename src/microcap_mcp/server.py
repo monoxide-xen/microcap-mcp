@@ -438,6 +438,52 @@ def generate_current_mirror(
 
 
 @mcp.tool()
+def generate_cascode(
+    rc: str = "4.7K",
+    re: str = "1K",
+    vcc: str = "12",
+    source: str = "AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUT",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` cascode amplifier (common-emitter under common-base).
+
+    A common-emitter transistor stacked under a common-base transistor. The
+    midband gain is the common-emitter's, ``-Rc/(Re+re')``, but the upper
+    transistor shields the lower one's collector from the output swing, so the
+    Miller capacitance nearly vanishes and both output impedance and bandwidth
+    rise — the reason to use a cascode over a plain common-emitter. All bias
+    points are computed for a mid-supply output with active-region headroom, and
+    both bases are driven by sources carrying their DC bias directly (no coupling
+    caps or dividers). ``Rc`` must exceed ``Re``.
+
+    Args:
+        rc, re: collector load and emitter degeneration; their ratio is the gain.
+        vcc: supply voltage.
+        source: AC drive VALUE added to the lower base's bias (``"AC=1"``).
+        analysis: AC, Transient, or DC.
+        output_node: label for the output node (the upper collector).
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.cascode_amplifier(
+            rc=rc, re=re, vcc=vcc, source=source,
+            analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "run it with simulate_schematic, or save it as a .CIR to open in Micro-Cap",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",

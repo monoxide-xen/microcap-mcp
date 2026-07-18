@@ -176,6 +176,7 @@ def test_bad_gain_and_kind_rejected():
 from microcap_mcp.schematic import (  # noqa: E402
     NMOS_PINS,
     NPN_PINS,
+    cascode_amplifier,
     common_collector_amplifier,
     common_emitter_amplifier,
     common_source_amplifier,
@@ -360,3 +361,24 @@ def test_current_mirror_structure_and_guard():
     assert '[Grid Text]\nText="OUTC"' in cir
     with pytest.raises(SchematicError):
         current_mirror(rref="1K", rload="100K")   # load saturates the output
+
+
+def test_cascode_stacks_two_devices_on_one_column():
+    """Q1 (common-emitter) sits below Q2 (common-base) in the same column, so
+    Q1's collector meets Q2's emitter. Both must land on grid.
+    """
+    import re
+    cir = cascode_amplifier(rc="4.7K", re="1K")
+    assert cir.count("Name=NPN") == 2
+    assert "V=Rc" in cir and "V=Re" in cir
+    assert '[Grid Text]\nText="OUT"' in cir
+    # the two transistors share the base column (same Px x)
+    xs = {int(m) for m in re.findall(r'Name=NPN\nPx=(\d+),\d+', cir)}
+    assert len(xs) == 1, f"cascode devices must share a column, got {xs}"
+
+
+def test_cascode_guards():
+    with pytest.raises(SchematicError, match="exceed"):
+        cascode_amplifier(rc="1K", re="1K")
+    with pytest.raises(SchematicError):
+        cascode_amplifier(rc="100K", re="1K", vcc="5")   # no headroom to stack

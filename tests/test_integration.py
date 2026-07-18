@@ -31,6 +31,7 @@ pytestmark = pytest.mark.skipif(not HAVE_MC, reason="Micro-Cap not installed")
 from microcap_mcp.server import (  # noqa: E402
     describe_example,
     generate_amplifier,
+    generate_cascode,
     generate_current_mirror,
     generate_differential_pair,
     generate_emitter_follower,
@@ -315,3 +316,18 @@ def test_generated_current_mirror_copies_the_reference_current():
     iout = (vcc - vout) / to_float(rload)
     # within ~10%: base-current and Early-effect error only
     assert iout == pytest.approx(iref, rel=0.1), f"Iout {iout*1e3:.3f}mA vs Iref {iref*1e3:.3f}mA"
+
+
+@pytest.mark.parametrize("rc,re,expected", [("4.7K", "1K", 4.7), ("10K", "1K", 10)])
+def test_generated_cascode_hits_the_common_emitter_gain(rc, re, expected):
+    """A cascode carries the common-emitter gain -Rc/(Re+re'); the point of the
+    topology is bandwidth/output impedance, but the midband gain must still land
+    near Rc/Re, and the stacked pair must stay in the active region (not ~0).
+    """
+    g = generate_cascode(rc=rc, re=re, analysis="AC")
+    assert "schematic" in g, g
+    r = simulate_schematic(g["schematic"], analysis="ac", points=25)
+    assert "error" not in r, r
+    got = _midband_gain(r)
+    assert got == pytest.approx(expected, rel=0.12), f"gain {got} vs ~{expected}"
+    assert got > 1.0, "an amplifier must have gain, not a saturated ~0"

@@ -92,6 +92,7 @@ $env:MICROCAP_HOME = "E:\Tools\MC12"
 | `generate_mosfet_amplifier` | draw a `.CIR` common-source MOSFET stage; gate bias derived from the model's VTO/KP to hold saturation |
 | `generate_differential_pair` | draw a `.CIR` BJT long-tailed pair (antiphase OUTP/OUTN outputs, auto-biased to mid-supply) |
 | `generate_current_mirror` | draw a `.CIR` BJT current mirror (Iout ≈ Iref = (Vcc−Vbe)/Rref) |
+| `generate_cascode` | draw a `.CIR` cascode (common-emitter under common-base): common-emitter gain, but higher bandwidth and output impedance |
 | `simulate_example` | run one of the ~490 circuits shipped with Micro-Cap |
 | `describe_example` | which analyses a circuit supports and what it plots, without running it |
 | `list_domains` | the 43 reference domains and their sizes |
@@ -165,7 +166,7 @@ Then `get_example` + `simulate_schematic` to edit a value and run the copy.
 uv run pytest
 ```
 
-123 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 25
+125 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader — pure text) plus 27
 integration tests that drive the whole stack against physics with a known answer and need
 Micro-Cap installed:
 
