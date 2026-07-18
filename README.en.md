@@ -169,7 +169,7 @@ Then `get_example` + `simulate_schematic` to edit a value and run the copy.
 uv run pytest
 ```
 
-135 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader, SVG render — pure text) plus 30
+137 unit tests with no Micro-Cap (parser, `.CIR` handling, log reader, SVG render — pure text) plus 30
 integration tests that drive the whole stack against physics with a known answer and need
 Micro-Cap installed:
 

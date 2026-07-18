@@ -144,85 +144,201 @@ def _abs_pins(c: Comp) -> list[tuple[int, int]]:
 
 
 # --------------------------------------------------------------------------
-# SVG symbols (drawn in the unrotated local frame, then g-transformed)
+# Component symbols — Micro-Cap's own shape geometry
 # --------------------------------------------------------------------------
+#
+# Micro-Cap draws each part from a [shapedef] in its shape library
+# (standard.shp): a list of primitives — Line, PolyOpen/PolyClosed, Arc,
+# Ellipse, Rectangle — and Root references to composite sub-shapes, all in the
+# same pixel frame as the pins (origin at the primary pin). Reproducing those
+# primitives here draws the symbols exactly as Micro-Cap does, rather than an
+# approximation. Only the handful of parts the generators use are transcribed;
+# the geometry is Spectrum's, kept verbatim as derived constants.
 
-def _sym_resistor() -> str:
-    z = "M0,0 L8,0 L11,-6 L17,6 L23,-6 L29,6 L35,-6 L40,0 L48,0"
-    return f'<path d="{z}" fill="none"/>'
-
-
-def _sym_capacitor() -> str:
-    return ('<path d="M0,0 L21,0 M27,0 L48,0" fill="none"/>'
-            '<path d="M21,-8 L21,8 M27,-8 L27,8" fill="none"/>')
-
-
-def _sym_inductor() -> str:
-    arcs = "".join(f"a6,6 0 0 1 12,0 " for _ in range(3))
-    return (f'<path d="M0,0 L6,0 " fill="none"/>'
-            f'<path d="M6,0 {arcs}" fill="none"/>'
-            f'<path d="M42,0 L48,0" fill="none"/>')
-
-
-def _sym_ground() -> str:
-    return ('<path d="M0,0 L0,7" fill="none"/>'
-            '<path d="M-9,7 L9,7 M-5,11 L5,11 M-2,15 L2,15" fill="none"/>')
-
-
-def _sym_source() -> str:
-    # circle with + and - to show polarity (Minus at 0,0 side, Plus at 48)
-    return ('<path d="M0,0 L12,0 M36,0 L48,0" fill="none"/>'
-            '<circle cx="24" cy="0" r="12" fill="none"/>'
-            '<path d="M31,-3 L31,3 M28.5,0 L33.5,0" fill="none" stroke-width="1.4"/>'
-            '<path d="M15,0 L20,0" fill="none" stroke-width="1.4"/>')
-
-
-def _sym_battery() -> str:
-    return ('<path d="M0,0 L18,0 M30,0 L48,0" fill="none"/>'
-            '<path d="M18,-10 L18,10" fill="none" stroke-width="2.2"/>'
-            '<path d="M24,-5 L24,5" fill="none"/>'
-            '<path d="M30,-10 L30,10" fill="none" stroke-width="2.2"/>')
-
-
-def _sym_npn(pnp: bool = False) -> str:
-    # base at (0,0); collector pin (24,-24), emitter pin (24,24)
-    bar = '<path d="M12,-12 L12,12" fill="none" stroke-width="2"/>'
-    lead = '<path d="M0,0 L12,0" fill="none"/>'
-    coll = '<path d="M12,-6 L24,-24" fill="none"/>'
-    emit = '<path d="M12,6 L24,24" fill="none"/>'
-    # emitter arrow (out for NPN, in for PNP)
-    arrow = ('<path d="M24,24 L18,18 M24,24 L23,16" fill="none"/>' if not pnp
-             else '<path d="M12,6 L18,10 M12,6 L13,13" fill="none"/>')
-    return lead + bar + coll + emit + arrow
-
-
-def _sym_nmos() -> str:
-    # gate at (0,0); drain (24,-24), source (24,24), body (24,0)
-    return ('<path d="M0,0 L10,0" fill="none"/>'
-            '<path d="M10,-12 L10,12" fill="none" stroke-width="2"/>'
-            '<path d="M15,-12 L15,-4 M15,-2 L15,2 M15,4 L15,12" fill="none" stroke-width="2"/>'
-            '<path d="M15,-8 L24,-8 L24,-24 M15,8 L24,8 L24,24 M15,0 L24,0" fill="none"/>')
-
-
-def _sym_opamp() -> str:
-    # +in (0,0), -in (0,48), out (72,24); triangle apex at output
-    return ('<path d="M0,-10 L0,58 L72,24 Z" fill="none"/>'
-            '<text x="10" y="4" font-size="11">+</text>'
-            '<text x="10" y="52" font-size="11">−</text>')
-
-
-_SYMBOLS = {
-    "Resistor": _sym_resistor,
-    "Capacitor": _sym_capacitor,
-    "Inductor": _sym_inductor,
-    "Voltage Source": _sym_source,
-    "Battery": _sym_battery,
-    "Ground": _sym_ground,
-    "NPN": _sym_npn,
-    "PNP": lambda: _sym_npn(pnp=True),
-    "NMOS": _sym_nmos,
-    "Opamp": _sym_opamp,
+_SHAPES: dict[str, str] = {
+    "Resistor": """
+PolyOpen=10
+PolyLine=0,0
+PolyLine=12,0
+PolyLine=14,-4
+PolyLine=18,4
+PolyLine=22,-4
+PolyLine=26,4
+PolyLine=30,-4
+PolyLine=34,4
+PolyLine=36,0
+PolyLine=48,0
+""",
+    "Capacitor": """
+Line=0,0,22,0
+Line=22,-8,22,8
+Line=26,-8,26,8
+Line=26,0,48,0
+""",
+    "Inductor": """
+Line=42,0,48,0
+Line=0,0,5,0
+Arc=5,-7,17,7,11,-7,5,0
+Arc=13,-7,25,7,19,-7,13,0
+Arc=29,-7,41,7,35,-7,29,0
+Arc=21,-7,33,7,27,-7,21,0
+Arc=6,-7,18,7,18,0,12,-7
+Arc=14,-7,26,7,26,0,20,-7
+Arc=22,-7,34,7,34,0,28,-7
+Arc=30,-7,42,7,42,0,36,-7
+""",
+    "Ground": """
+Line=0,0,12,0
+Line=12,-8,12,8
+Line=18,-4,18,4
+""",
+    "Battery": """
+Line=0,0,22,0
+Line=22,-3,22,3
+Line=26,-7,26,7
+Line=26,0,48,0
+""",
+    "Vsource.root": """
+Line=0,0,12,0
+Line=36,0,48,0
+Ellipse=12,-12,36,12
+""",
+    "SPICE_V": """
+Root="Vsource.root",0,0,0
+""",
+    "Bjt.root": """
+Line=0,0,13,0
+Rectangle=13,-12,15,12
+PolyOpen=3
+PolyLine=24,-24
+PolyLine=24,-12
+PolyLine=14,-2
+PolyOpen=3
+PolyLine=24,24
+PolyLine=24,12
+PolyLine=14,2
+""",
+    "NPN": """
+Root="Bjt.root",0,0,0
+PolyClosed=3
+PolyLine=20,12
+PolyLine=24,12
+PolyLine=24,8
+""",
+    "Mos1.root": """
+Line=0,0,10,0
+Line=10,-8,10,8
+Rectangle=12,-12,14,12
+PolyOpen=3
+PolyLine=24,-24
+PolyLine=24,-8
+PolyLine=13,-8
+PolyOpen=3
+PolyLine=24,24
+PolyLine=24,8
+PolyLine=13,8
+""",
+    "NMOS": """
+Root="Mos1.root",0,0,0
+Line=14,0,24,0
+PolyClosed=3
+PolyLine=16,0
+PolyLine=20,4
+PolyLine=20,-4
+""",
+    "Plus.root": """
+Line=-2,0,2,0
+Line=0,-2,0,2
+""",
+    "Minus.root": """
+Line=-2,0,2,0
+""",
+    "Opamp.root": """
+Line=0,48,6,48
+Line=0,0,5,0
+Line=6,-4,6,52
+Line=6,-4,48,24
+Line=6,52,48,24
+Line=48,24,72,24
+Line=10,12,14,12
+Line=12,10,12,14
+Line=10,36,14,36
+""",
+    "Opamp5": """
+Root="Opamp.root",0,0,0
+Root="Plus.root",25,-4,0
+Root="Minus.root",25,52,0
+""",
 }
+
+# component Name (in the .CIR) -> shapedef name (from Micro-Cap's [compdef])
+_COMP_SHAPE = {
+    "Resistor": "Resistor",
+    "Capacitor": "Capacitor",
+    "Inductor": "Inductor",
+    "Battery": "Battery",
+    "Voltage Source": "SPICE_V",
+    "Ground": "Ground",
+    "NPN": "NPN",
+    "NMOS": "NMOS",
+    "Opamp": "Opamp5",
+}
+
+
+def _nums(text: str) -> list[float]:
+    return [float(n) for n in re.findall(r"-?\d+\.?\d*", text)]
+
+
+def _arc_path(v: list[float]) -> str:
+    """Micro-Cap Arc = ellipse bounding box (x1,y1,x2,y2) then start (x3,y3) and
+    end (x4,y4) points, drawn counter-clockwise."""
+    x1, y1, x2, y2, sx, sy, ex, ey = v[:8]
+    rx, ry = abs(x2 - x1) / 2, abs(y2 - y1) / 2
+    if rx == 0 or ry == 0:
+        return f"M{sx},{sy} L{ex},{ey}"
+    return f"M{sx},{sy} A{rx},{ry} 0 0 0 {ex},{ey}"
+
+
+def _shape_svg(name: str, depth: int = 0) -> str:
+    """Render a shapedef's primitives to SVG, resolving Root sub-shapes."""
+    if depth > 6 or name not in _SHAPES:
+        return ""
+    out: list[str] = []
+    lines = [ln.strip() for ln in _SHAPES[name].strip().splitlines() if ln.strip()]
+    i = 0
+    while i < len(lines):
+        key, _, val = lines[i].partition("=")
+        key = key.strip()
+        if key == "Line":
+            a, b, c, d = _nums(val)
+            out.append(f'<line x1="{a}" y1="{b}" x2="{c}" y2="{d}" fill="none"/>')
+        elif key == "Rectangle":
+            a, b, c, d = _nums(val)
+            out.append(f'<rect x="{min(a, c)}" y="{min(b, d)}" width="{abs(c - a)}" '
+                       f'height="{abs(d - b)}" stroke="none" fill="#1a1a1a"/>')
+        elif key == "Ellipse":
+            a, b, c, d = _nums(val)
+            out.append(f'<ellipse cx="{(a + c) / 2}" cy="{(b + d) / 2}" rx="{abs(c - a) / 2}" '
+                       f'ry="{abs(d - b) / 2}" fill="none"/>')
+        elif key == "Arc":
+            out.append(f'<path d="{_arc_path(_nums(val))}" fill="none"/>')
+        elif key in ("PolyOpen", "PolyClosed"):
+            n = int(_nums(val)[0])
+            pts = []
+            for _ in range(n):
+                i += 1
+                pts.append(",".join(str(int(x)) for x in _nums(lines[i].partition("=")[2])))
+            tag = "polyline" if key == "PolyOpen" else "polygon"
+            fill = "none" if key == "PolyOpen" else "#1a1a1a"
+            out.append(f'<{tag} points="{" ".join(pts)}" fill="{fill}"/>')
+        elif key == "Root":
+            m = re.match(r'"([^"]+)",\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)', val)
+            if m:
+                nm, tx, ty, rot = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                tr = f"translate({tx},{ty})" + (f" rotate({90 * rot})" if rot else "")
+                out.append(f'<g transform="{tr}">{_shape_svg(nm, depth + 1)}</g>')
+        i += 1
+    return "".join(out)
 
 
 def _label_for(c: Comp) -> str:
@@ -380,18 +496,22 @@ def render_svg(cir_text: str, annotations: dict[str, str] | None = None) -> str:
         if n >= 3:
             out.append(f'<circle cx="{px}" cy="{py}" r="3" fill="#1a1a1a"/>')
 
-    # components
+    # components — drawn from Micro-Cap's own shape geometry
     for c in sch.comps:
-        maker = _SYMBOLS.get(c.name)
-        rotate = f' rotate({90 * c.rot})' if c.rot else ""
-        if maker:
-            out.append(f'<g transform="translate({c.x},{c.y}){rotate}">{maker()}</g>')
+        shape = _COMP_SHAPE.get(c.name)
+        # Micro-Cap's Ground shape points right unrotated, and it never places
+        # one that way (shipped circuits use Rot 1/7, tines down); a Rot=0 ground
+        # is a generator that didn't bother rotating, so show it pointing down.
+        rot = 1 if (c.name == "Ground" and c.rot == 0) else c.rot
+        rotate = f' rotate({90 * (rot % 4)})' if rot % 4 else ""
+        if shape:
+            out.append(f'<g transform="translate({c.x},{c.y}){rotate}">{_shape_svg(shape)}</g>')
         else:
-            # unknown part: a labelled box between its first two pins, so it is
-            # visible rather than dropped
+            # unknown part: a box between its first two pins, so it is visible
+            # rather than dropped
             out.append(f'<g transform="translate({c.x},{c.y}){rotate}">'
                        f'<rect x="0" y="-10" width="48" height="20" fill="none"/></g>')
-        cap = _label_for(c) or (c.name if not maker else "")
+        cap = _label_for(c) or (c.name if not shape else "")
         if cap:
             out.append(f'<text x="{c.x + 6}" y="{c.y - 14}" font-size="11" '
                        f'stroke="none">{_esc(cap)}</text>')
