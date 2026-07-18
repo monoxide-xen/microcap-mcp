@@ -59,6 +59,20 @@ def test_rotation_transforms_pins():
     assert draw._abs_pins(r1) == [(100, 100), (100, 148)]      # vertical
 
 
+def test_all_eight_orientations_move_the_plus_pin_as_micro_cap_does():
+    """Rot 0-3 are rotations, 4-7 reflections. The on-axis Plus pin (48,0) must
+    land where shipped circuits put it (established empirically).
+    """
+    expected = {
+        0: (48, 0), 1: (0, 48), 2: (-48, 0), 3: (0, -48),
+        4: (48, 0), 5: (0, -48), 6: (-48, 0), 7: (0, 48),
+    }
+    for rot, exp in expected.items():
+        assert draw._rot(48, 0, rot) == exp, rot
+    # reflections invert the perpendicular axis relative to their rotation twin
+    assert draw._rot(0, 10, 0) == (0, 10) and draw._rot(0, 10, 4) == (0, -10)
+
+
 def test_render_is_wellformed_svg_with_symbols_and_labels():
     cir = sch.cascode_amplifier(rc="10K", re="1K")
     svg = draw.render_svg(cir)

@@ -27,6 +27,7 @@ class Comp:
     y: int
     rot: int = 0
     attrs: dict[str, str] = field(default_factory=dict)
+    attr_pos: dict[str, tuple[int, int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -62,6 +63,7 @@ def parse(cir_text: str) -> Schematic:
             continue
         if line == "[Attr]" and cur is not None:
             name = None
+            pos = (0, 0)
             i += 1
             while i < len(lines) and not lines[i].startswith("["):
                 s = lines[i].strip()
@@ -70,8 +72,13 @@ def parse(cir_text: str) -> Schematic:
                     parts = s[3:].split(",")
                     if len(parts) >= 3:
                         name = parts[2]
+                        try:
+                            pos = (int(parts[0]), int(parts[1]))
+                        except ValueError:
+                            pos = (0, 0)
                 elif s.startswith("V=") and name:
                     cur.attrs[name] = s[2:]
+                    cur.attr_pos[name] = pos
                 i += 1
             continue
         if line == "[Wire]":
@@ -112,12 +119,27 @@ def parse(cir_text: str) -> Schematic:
 # geometry
 # --------------------------------------------------------------------------
 
+# Micro-Cap's 8 orientations as 2x2 matrices (a,b,c,d) applied as
+# (a*x + c*y, b*x + d*y) — SVG's matrix(a,b,c,d,0,0). Rot 0-3 are rotations
+# (det +1), 4-7 reflections (det -1). Established empirically from shipped
+# circuits: for each Rot, a part's pins land on their wires under this matrix.
+_MAT = {
+    0: (1, 0, 0, 1),
+    1: (0, 1, -1, 0),
+    2: (-1, 0, 0, -1),
+    3: (0, -1, 1, 0),
+    4: (1, 0, 0, -1),
+    5: (0, -1, -1, 0),
+    6: (-1, 0, 0, 1),
+    7: (0, 1, 1, 0),
+}
+
+
 def _rot(dx: int, dy: int, rot: int) -> tuple[int, int]:
-    """Micro-Cap Rot in 90° steps. Each step is (x,y) -> (-y,x), which is SVG's
-    clockwise rotate(90) in a y-down frame."""
-    for _ in range(rot % 4):
-        dx, dy = -dy, dx
-    return dx, dy
+    """Transform a point by Micro-Cap's orientation matrix (rotations 0-3,
+    reflections 4-7)."""
+    a, b, c, d = _MAT[rot % 8]
+    return a * dx + c * dy, b * dx + d * dy
 
 
 # component pins in the unrotated frame, grid units (matches schematic.py)
@@ -439,7 +461,8 @@ def render_svg(cir_text: str, annotations: dict[str, str] | None = None) -> str:
     # rewrite the schematic through the remap; symbols keep their local size,
     # which stays aligned because each part's span is unit-slope
     sch = Schematic(
-        comps=[Comp(c.name, round(fx(c.x)), round(fy(c.y)), c.rot, c.attrs) for c in sch.comps],
+        comps=[Comp(c.name, round(fx(c.x)), round(fy(c.y)), c.rot, c.attrs, c.attr_pos)
+               for c in sch.comps],
         wires=[(round(fx(a)), round(fy(b)), round(fx(cc)), round(fy(d)))
                for a, b, cc, d in sch.wires],
         labels=[(t, round(fx(x)), round(fy(y))) for t, x, y in sch.labels],
@@ -473,14 +496,33 @@ def render_svg(cir_text: str, annotations: dict[str, str] | None = None) -> str:
 
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx} {miny} {w} {h}" '
-        f'width="{w}" height="{h}" font-family="sans-serif">',
+        f'width="{w}" height="{h}" font-family="Verdana,Geneva,sans-serif" font-size="11">',
         f'<rect x="{minx}" y="{miny}" width="{w}" height="{h}" fill="white"/>',
         # a white halo behind every glyph keeps captions legible over wires
-        '<style>text{paint-order:stroke;stroke:white;stroke-width:3px;'
+        '<style>text{paint-order:stroke;stroke:white;stroke-width:2.5px;'
         'stroke-linejoin:round}</style>',
-        '<g stroke="#1a1a1a" stroke-width="1.6" stroke-linecap="round" '
-        'stroke-linejoin="round" fill="#1a1a1a">',
     ]
+
+    # Micro-Cap's editor shows a grid of dots; draw them faintly behind
+    # everything, snapped so they sit on the schematic's own coordinates.
+    step = 24
+    gx0 = minx - (minx % step) + step
+    gy0 = miny - (miny % step) + step
+    dots = []
+    yy = gy0
+    while yy < maxy:
+        xx = gx0
+        while xx < maxx:
+            dots.append(f'<circle cx="{xx}" cy="{yy}" r="0.9"/>')
+            xx += step
+        yy += step
+    if dots:
+        out.append(f'<g fill="#c4ccd4" stroke="none">{"".join(dots)}</g>')
+
+    # everything else in Micro-Cap's dark-navy ink
+    ink = "#141d7a"
+    out.append(f'<g stroke="{ink}" stroke-width="1.5" stroke-linecap="round" '
+               f'stroke-linejoin="round" fill="{ink}">')
 
     # wires first, so symbols sit on top
     for x1, y1, x2, y2 in sch.wires:
@@ -494,35 +536,39 @@ def render_svg(cir_text: str, annotations: dict[str, str] | None = None) -> str:
         endpoints[(x2, y2)] += 1
     for (px, py), n in endpoints.items():
         if n >= 3:
-            out.append(f'<circle cx="{px}" cy="{py}" r="3" fill="#1a1a1a"/>')
+            out.append(f'<circle cx="{px}" cy="{py}" r="2.6" fill="{ink}"/>')
 
-    # components — drawn from Micro-Cap's own shape geometry
+    # components — Micro-Cap's own shape geometry, placed by its orientation
+    # matrix (rotations 0-3, reflections 4-7)
     for c in sch.comps:
         shape = _COMP_SHAPE.get(c.name)
-        # Micro-Cap's Ground shape points right unrotated, and it never places
-        # one that way (shipped circuits use Rot 1/7, tines down); a Rot=0 ground
-        # is a generator that didn't bother rotating, so show it pointing down.
+        # MC's Ground shape points right unrotated and it never places one that
+        # way (shipped circuits use Rot 1/7); a Rot=0 ground is a generator that
+        # didn't rotate it, so draw it pointing down.
         rot = 1 if (c.name == "Ground" and c.rot == 0) else c.rot
-        rotate = f' rotate({90 * (rot % 4)})' if rot % 4 else ""
-        if shape:
-            out.append(f'<g transform="translate({c.x},{c.y}){rotate}">{_shape_svg(shape)}</g>')
-        else:
-            # unknown part: a box between its first two pins, so it is visible
-            # rather than dropped
-            out.append(f'<g transform="translate({c.x},{c.y}){rotate}">'
-                       f'<rect x="0" y="-10" width="48" height="20" fill="none"/></g>')
-        cap = _label_for(c) or (c.name if not shape else "")
-        if cap:
-            out.append(f'<text x="{c.x + 6}" y="{c.y - 14}" font-size="11" '
-                       f'stroke="none">{_esc(cap)}</text>')
+        a, b, cc, d = _MAT[rot % 8]
+        tr = f"translate({c.x},{c.y}) matrix({a},{b},{cc},{d},0,0)"
+        inner = _shape_svg(shape) if shape else '<rect x="0" y="-10" width="48" height="20" fill="none"/>'
+        out.append(f'<g transform="{tr}">{inner}</g>')
+        # part name over its value, stacked beside the part (as Micro-Cap shows
+        # them). The [Attr] ON gives the anchor; the text stays upright.
+        part = c.attrs.get("PART", "")
+        val = next((c.attrs[k] for k in
+                    ("RESISTANCE", "CAPACITANCE", "INDUCTANCE", "VALUE") if c.attrs.get(k)), "")
+        ox, oy = c.attr_pos.get("PART", (12, -18))
+        tx, ty = c.x + ox, c.y + oy
+        if part:
+            out.append(f'<text x="{tx}" y="{ty}" stroke="none" fill="#1a1a1a">{_esc(part)}</text>')
+            ty += 13
+        if val:
+            out.append(f'<text x="{tx}" y="{ty}" stroke="none" fill="#1a1a1a">{_esc(val)}</text>')
 
-    # node labels (bold, offset so they clear the wire), with an optional
-    # operating-point annotation beneath in a distinct colour
+    # node labels, and an optional operating-point annotation beneath
     for text, x, y in sch.labels:
-        out.append(f'<text x="{x + 4}" y="{y - 4}" font-size="12" font-weight="bold" '
-                   f'fill="#0645ad" stroke="none">{_esc(text)}</text>')
+        out.append(f'<text x="{x + 4}" y="{y - 4}" font-weight="bold" '
+                   f'fill="{ink}" stroke="none">{_esc(text)}</text>')
         if annotations and text in annotations:
-            out.append(f'<text x="{x + 4}" y="{y + 11}" font-size="11" '
+            out.append(f'<text x="{x + 4}" y="{y + 12}" '
                        f'fill="#c1121f" stroke="none">{_esc(annotations[text])}</text>')
 
     out.append("</g></svg>")
