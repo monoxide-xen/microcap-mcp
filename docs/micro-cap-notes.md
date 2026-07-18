@@ -173,115 +173,116 @@ Low Range Error: Unknown identifier 'TMIN'.
 
 Вывод: гасить окно можно только когда картинка не запрошена.
 
-## Generating a `.CIR` from scratch
+## Генерация `.CIR` с нуля
 
-Facts that make schematic generation work (the driver ships a bounded
-generator — a source and a series chain of two-terminal passives):
+Факты, на которых держится генерация схем (драйвер отдаёт ограниченный
+генератор — источник и последовательная цепочка двухполюсных пассивов):
 
-**Shape and component definitions are built-in.** A `.CIR` that places parts by
-name (`Resistor`, `Capacitor`, `Ground`, ...) without embedding any `[shapedef]`
-or `[compdef]` still opens and simulates. So a generator needs only `[Main]`,
-`[Comp]`/`[Attr]` placements, `[Wire]` segments, `[Grid Text]` node labels, and
-`[Limits]`.
+**Определения фигур и компонентов встроены.** `.CIR`, который расставляет части
+по имени (`Resistor`, `Capacitor`, `Ground`, ...) без единого `[shapedef]` или
+`[compdef]`, всё равно открывается и считается. Так что генератору нужны только
+`[Main]`, размещения `[Comp]`/`[Attr]`, отрезки `[Wire]`, метки узлов
+`[Grid Text]` и `[Limits]`.
 
-**Pin geometry lives in `Standard.cmp`**, in grid units (×8 for pixels):
+**Геометрия пинов лежит в `Standard.cmp`**, в единицах сетки (×8 в пиксели):
 
 ```
 [compdef]
 Name=Resistor
-Pin="Plus",6,0,-10,-4     ; Plus at grid (6,0) = 48 px
-Pin="Minus",0,0,-14,-4    ; Minus at grid (0,0)
+Pin="Plus",6,0,-10,-4     ; Plus в сетке (6,0) = 48 px
+Pin="Minus",0,0,-14,-4    ; Minus в сетке (0,0)
 ```
 
-Every supported two-terminal part — R, C, L, Battery, Voltage Source — shares
-this layout: Minus at (0,0), Plus at (6,0), horizontal at `Rot=0`. Knowing the
-real pin positions is the difference between building the intended circuit and
-whatever Micro-Cap extracts from misplaced wires (a guessed vertical source
-left `V(OUT)=0`).
+У всех поддерживаемых двухполюсников — R, C, L, Battery, Voltage Source — одна
+разводка: Minus в (0,0), Plus в (6,0), горизонтально при `Rot=0`. Знать реальные
+позиции пинов — это разница между «построить задуманную схему» и «считать то,
+что Micro-Cap извлечёт из криво расставленных проводов» (наугад поставленный
+вертикальный источник дал `V(OUT)=0`).
 
-**A node is named by a `[Grid Text]` label at its wire coordinate**, e.g.
+**Узел именуется меткой `[Grid Text]` в координате его провода**, например
 `[Grid Text]
 Text="OUT"
 Px=160,128`.
 
-**A plot expression needs `Plt`/`AliasID`/`Enable`**, or Micro-Cap reports
+**Выражению графика нужны `Plt`/`AliasID`/`Enable`**, иначе Micro-Cap сообщает
 "Must select an expression to plot".
 
-**A `Voltage Source` (`Definition=VSpice`) takes a `VALUE` attribute** in
-Micro-Cap syntax, e.g. `DC=0 AC=1` for an AC probe or a `PULSE ...` line for
-transient — not the SPICE `AC 1` spelling.
+**`Voltage Source` (`Definition=VSpice`) принимает атрибут `VALUE`** в синтаксисе
+Micro-Cap, например `DC=0 AC=1` для AC-пробы или строку `PULSE ...` для
+transient — а не SPICE-написание `AC 1`.
 
-Verified by generating an RC low-pass that reproduces `1/sqrt(2)` at the cutoff,
-a resistive divider at exactly 0.5, an RL high-pass, and a charging transient.
+Проверено генерацией RC-фильтра, который воспроизводит `1/sqrt(2)` на частоте
+среза, резистивного делителя ровно на 0.5, RL-фильтра ВЧ и переходного заряда.
 
-### Parallel branches and active components
+### Параллельные ветви и активные компоненты
 
-**Parallel branches work with the same passive geometry.** Elements sharing a
-node just need their own wire down to their own ground. A series R feeding a
-parallel L-C tank resonates at `1/(2*pi*sqrt(LC))` as it should.
+**Параллельные ветви работают на той же пассивной геометрии.** Элементам,
+делящим узел, нужен лишь собственный провод вниз на собственную землю.
+Последовательный R, питающий параллельный LC-контур, резонирует на
+`1/(2*pi*sqrt(LC))`, как и должен.
 
-**Active components need three extra things — none in the manual.** An op-amp is
-a macro/subcircuit component; a `.CIR` that instantiates one (unlike a passive)
-needs, found by bisecting a working circuit to its minimum:
+**Активным компонентам нужны три вещи сверху — ни одной в мануале.** ОУ — это
+макрос/подсхема; `.CIR`, который его инстанцирует (в отличие от пассива),
+требует — найдено бисекцией рабочей схемы до минимума:
 
-* a `[Page]` section — minimally `[Page]
+* секцию `[Page]` — минимально `[Page]
 Name=Page 1`;
-* the model in a `[Text Area]` **tagged with the page**:
+* модель в `[Text Area]`, **привязанной к странице**:
   `[Text Area]
 Section=0
 Page=1
 Text=.MODEL O1 OPA (LEVEL=1 A=1e6 ...)`;
-* **section order** — Main, Circuit, drawing, Page, Text Area, Limits, WaveForm.
-  Passives tolerate any order; the op-amp does not (wrong order gives
-  "Bad format in loading file"; a missing page gives "Missing model statement").
+* **порядок секций** — Main, Circuit, чертёж, Page, Text Area, Limits, WaveForm.
+  Пассивы терпят любой порядок; ОУ — нет (неверный порядок даёт
+  "Bad format in loading file", отсутствие страницы — "Missing model statement").
 
-Op-amp pins from `Standard.cmp` (grid units): Plus in (0,0), Minus in (0,6),
-Output (9,3); VCC (4,-1)/VEE (4,7) float for the near-ideal LEVEL=1 model.
-Transistors: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
+Пины ОУ из `Standard.cmp` (единицы сетки): Plus in (0,0), Minus in (0,6),
+Output (9,3); VCC (4,-1)/VEE (4,7) висят свободно для почти идеальной модели
+LEVEL=1. Транзисторы: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
 
-With these, the generator produces inverting and non-inverting op-amp
-amplifiers, verified against `-Rf/Rin` and `1 + Rf/Rg`.
+С этим генератор строит инвертирующие и неинвертирующие усилители на ОУ,
+проверенные против `-Rf/Rin` и `1 + Rf/Rg`.
 
-**Transistors: the real trap is the grid, not rotation.** The NPN is a
-*primitive* (not a macro), referencing a model by name — `2N2222` from the
-global library, or a local `.MODEL QN NPN (...)`. Its pins from `Standard.cmp`
-are Collector (3,-3), Base (0,0), Emitter (3,3), at `Rot=0` — no rotation is
-needed (the shipped COLPITTS.cir places its NPN at `Rot=0` and its collector
-wire lands exactly on Base+(24,-24), confirming the geometry).
+**Транзисторы: настоящая ловушка — сетка, а не поворот.** NPN — это *примитив*
+(не макрос), ссылающийся на модель по имени: `2N2222` из глобальной библиотеки
+или локальная `.MODEL QN NPN (...)`. Его пины из `Standard.cmp` — Collector
+(3,-3), Base (0,0), Emitter (3,3) при `Rot=0`; поворот не нужен (штатная
+COLPITTS.cir ставит NPN при `Rot=0`, и провод коллектора ложится ровно на
+Base+(24,-24), что подтверждает геометрию).
 
-The failure that looked like a rotation problem was actually this: **a
-`[Grid Text]` node label only binds if its coordinate is a multiple of the 8 px
-grid.** A label placed off-grid is silently dropped, and the analysis aborts
-with `Can't find label 'OUT' in V(...)` — the same error a missing macro gives,
-which is what made it look like the transistor "did not instantiate". It did:
-the batch log showed the four analog nodes built and only the *plot label*
-unresolved. The NPN pins sit at Base ±(24,∓24); if the placement origin's `y`
-is not itself a multiple of 8, every pin lands off-grid and no label on them
-binds. Put the whole device on the 8 px grid and it works — no rotation-aware
-geometry, no special case beyond the passives.
+Сбой, похожий на проблему поворота, на деле был вот в чём: **метка узла
+`[Grid Text]` привязывается, только если её координата кратна сетке 8 px.**
+Метка вне сетки молча отбрасывается, и анализ падает с `Can't find label 'OUT'
+in V(...)` — та же ошибка, что даёт отсутствующий макрос, отчего и казалось, что
+транзистор «не инстанцировался». Он инстанцировался: batch-лог показал четыре
+аналоговых узла и лишь неразрешённую *метку графика*. Пины NPN сидят в
+Base ±(24,∓24); если `y` начала координат не кратен 8, все пины уходят с сетки и
+ни одна метка на них не привязывается. Поставь весь прибор на сетку 8 px — и всё
+работает: ни поворотной геометрии, ни особого случая сверх пассивов.
 
-With that, a common-emitter stage (divider bias, unbypassed `Re`,
-AC-coupled input) reproduces the small-signal gain `-Rc/(Re+re')` to ~1%.
-One more sharp edge: a part and a node must not share a name — naming the
-supply source `VCC` *and* labelling its net `VCC` earns a warning and muddies
-the netlist; give the label and the part different names.
+С этим каскад с общим эмиттером (делитель смещения, недошунтированный `Re`,
+вход через конденсатор) воспроизводит малосигнальное усиление `-Rc/(Re+re')` с
+точностью ~1%. Ещё одна острая грань: часть и узел не должны носить одно имя —
+назвать источник питания `VCC` *и* пометить его цепь `VCC` даёт предупреждение и
+мутит нетлист; дай метке и части разные имена.
 
-**Wires join only at endpoints, not at midpoints.** A wire whose endpoint lands
-partway along another wire — a T-junction — does *not* connect: Micro-Cap ties
-`[Wire]` segments together only where their endpoints coincide (and to a
-component pin at that coordinate). A single device never hits this because every
-branch runs pin-to-pin, but a fan-out node does: the joined emitters of a
-differential pair, or a supply rail feeding several taps, must be built from
-segments that meet end-to-end, splitting the run at each tap. Drop a tap onto
-the middle of a wire and that branch is silently open — the stage biases as if
-it were not there (measured: a long-tailed pair whose tail tapped the emitter
-wire at its midpoint sat with both collectors at `Vcc`, i.e. cut off; splitting
-the emitter run at the tap turned it on and the collectors came to mid-supply).
+**Провода соединяются только по концам, а не по серединам.** Провод, чей конец
+падает на середину другого провода — T-стык, — *не* соединяется: Micro-Cap
+связывает отрезки `[Wire]` только там, где совпадают их концы (и с пином
+компонента в этой координате). Одиночный прибор на это не натыкается, потому что
+каждая ветвь идёт пин-в-пин, а вот узел-разветвление — да: соединённые эмиттеры
+дифференциальной пары или шина питания, кормящая несколько отводов, должны
+собираться из отрезков встык, с разбиением на каждом отводе. Кинь отвод на
+середину провода — и эта ветвь молча висит в воздухе, каскад смещается так,
+будто её нет (замерено: у пары с длинным хвостом, где хвост цеплялся к середине
+провода эмиттеров, оба коллектора сидели на `Vcc`, то есть в отсечке;
+разбиение провода эмиттеров в точке отвода включило её, и коллекторы пришли к
+середине питания).
 
-A near-ideal single-transistor bias trick used above: drive a base from a
-`Voltage Source` whose VALUE carries both the operating point and the signal,
-`DC=6 AC=1`. The AC analysis linearises around the DC, so one source both biases
-the base and injects the small signal — no coupling capacitor, no separate bias
-network. (Watch the source orientation: its pins are Minus-left, Plus-right, so
-a source mirrored to sit on the *right* of its node feeds the node its Minus and
-inverts the bias — a base meant for `+6 V` reads `-6 V`.)
+Почти идеальный трюк смещения одного транзистора, использованный выше: питай
+базу от `Voltage Source`, чей VALUE несёт и рабочую точку, и сигнал —
+`DC=6 AC=1`. AC-анализ линеаризует вокруг DC, так что один источник и смещает
+базу, и вводит малый сигнал — без разделительного конденсатора и отдельной цепи
+смещения. (Следи за ориентацией источника: его пины Minus-слева, Plus-справа, так
+что источник, отражённый *справа* от своего узла, кормит узел своим Minus и
+инвертирует смещение — база, задуманная на `+6 В`, читается как `-6 В`.)
