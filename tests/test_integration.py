@@ -39,6 +39,8 @@ from microcap_mcp.server import (  # noqa: E402
     generate_schematic,
     generate_transistor_amplifier,
     get_example,
+    plot,
+    plot_schematic,
     search_examples,
     simulate,
     simulate_example,
@@ -331,3 +333,27 @@ def test_generated_cascode_hits_the_common_emitter_gain(rc, re, expected):
     got = _midband_gain(r)
     assert got == pytest.approx(expected, rel=0.12), f"gain {got} vs ~{expected}"
     assert got > 1.0, "an amplifier must have gain, not a saturated ~0"
+
+
+def _is_real_plot(r):
+    """A rendered plot is a big JPEG; the black-window artefact is ~50 KB. The
+    size is the only reliable tell, per the window-suppression note.
+    """
+    import base64
+    assert "error" not in r, r
+    assert r["mime_type"] == "image/jpeg"
+    return len(base64.b64decode(r["data"])) > 150_000
+
+
+def test_plot_renders_a_real_waveform_not_a_black_jpeg():
+    assert _is_real_plot(plot(RC_LOWPASS, analysis="ac")), \
+        "plot must be a real render, not the black-window artefact"
+
+
+def test_plot_schematic_renders_a_generated_circuit():
+    """The picture path for drawn schematics: a generated stage must come back
+    as a real plot image, so an agent can show what it built.
+    """
+    g = generate_transistor_amplifier(rc="4.7K", re="1K", analysis="AC")
+    assert _is_real_plot(plot_schematic(g["schematic"], analysis="ac")), \
+        "plot_schematic must render the generated circuit"
