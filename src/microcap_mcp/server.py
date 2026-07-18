@@ -640,6 +640,31 @@ def plot(netlist: str, analysis: str = "transient", defines: dict[str, str] | No
 
 
 @mcp.tool()
+def draw_schematic(cir: str) -> Any:
+    """Render a ``.CIR`` schematic as an SVG picture — the *drawing*, not a plot.
+
+    Micro-Cap's own schematic-image command does not work in batch, so this
+    draws the circuit directly from the ``.CIR`` (the same placements, wires and
+    node labels), giving recognisable symbols for R/C/L, sources, ground,
+    BJT/MOSFET and op-amp. Use it to *see* a circuit — a reference you fetched or
+    one drawn by the generators — without opening Micro-Cap. No simulation runs.
+
+    Returns SVG (vector, self-contained); save it as ``.svg`` or embed it.
+    """
+    from . import draw
+
+    try:
+        svg = draw.render_svg(cir)
+    except Exception as e:  # noqa: BLE001 — a malformed .CIR must not crash the server
+        return {"error": f"could not render schematic: {e}"}
+    return {
+        "mime_type": "image/svg+xml",
+        "data": base64.b64encode(svg.encode("utf-8")).decode("ascii"),
+        "svg": svg,
+    }
+
+
+@mcp.tool()
 def plot_schematic(cir: str, analysis: str = "ac", points: int | None = None) -> Any:
     """Run a ``.CIR`` schematic and return Micro-Cap's rendered plot as a JPEG.
 

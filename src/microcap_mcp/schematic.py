@@ -330,11 +330,15 @@ NPN_MODEL = ".MODEL QN NPN (BF=150 IS=1E-14 VAF=100)"
 NMOS_PINS = {"drain": (3, -3), "gate": (0, 0), "source": (3, 3), "body": (3, 0)}
 NMOS_MODEL = ".MODEL MN NMOS (LEVEL=1 VTO=1.5 KP=2M)"
 
-# Shared layout, all on the 8 px grid so every device pin lands on it. Two
-# columns: the control node (base/gate) at _CTRL_X, the top device pin
-# (collector/drain) at _TOP_X. A [Grid Text] label binds only on the grid.
+# Shared layout, all on the 8 px grid so every device pin lands on it. Columns:
+# the bias divider at _BIAS_X, the control node (base/gate) at _CTRL_X, the top
+# device pin (collector/drain) at _TOP_X. The device fixes _TOP_X only 24 px from
+# _CTRL_X (the collector sits at base+24), so the divider is given its own column
+# well to the left — otherwise its resistors crowd the collector/emitter ones and
+# the drawing is unreadable. A [Grid Text] label binds only on the grid.
 _DEV_X, _DEV_Y = 400, 304
 _CTRL_X, _TOP_X = _DEV_X, _DEV_X + 24
+_BIAS_X = _DEV_X - 104          # 296: a clear column for the bias divider
 _VCC_Y, _GND_Y = 104, 520
 _VBE = 0.7
 
@@ -356,31 +360,35 @@ def _dev_pin(pins: dict, name: str) -> tuple[int, int]:
 
 
 def _supply_rail(vcc: str) -> list[str]:
-    """DC supply at the left, its ground, and the rail run out to both taps."""
+    """DC supply at the left, its ground, and the rail run out to every tap
+    (split at each so the taps meet it end-to-end, not as midpoints)."""
     return [
         _comp(SOURCE.shape, 96, _VCC_Y, [("PART", "VS"), (SOURCE.value_attr, f"DC={vcc}")]),
         _wire(96, _VCC_Y, 96, _VCC_Y + 24),
         _comp("Ground", 96, _VCC_Y + 24, []),
-        _wire(144, _VCC_Y, _CTRL_X, _VCC_Y),     # rail to the divider tap
-        _wire(_CTRL_X, _VCC_Y, _TOP_X, _VCC_Y),  # and on to the collector/drain tap
+        _wire(144, _VCC_Y, _BIAS_X, _VCC_Y),      # rail to the divider tap
+        _wire(_BIAS_X, _VCC_Y, _CTRL_X, _VCC_Y),  # on to the control column
+        _wire(_CTRL_X, _VCC_Y, _TOP_X, _VCC_Y),   # and to the collector/drain tap
     ]
 
 
 def _bias_divider(ctrl_y: int, r1: str, r2: str) -> list[str]:
-    """R1 (rail->control), R2 (control->ground) on the control-node column."""
+    """R1 (rail->control), R2 (control->ground) on their own column at _BIAS_X,
+    bridged across to the control node so they don't crowd the device column."""
     return [
-        _comp("Resistor", _CTRL_X, 160, [("PART", "R1"), ("RESISTANCE", r1)], rot=1),
-        _wire(_CTRL_X, _VCC_Y, _CTRL_X, 160),
-        _wire(_CTRL_X, 208, _CTRL_X, ctrl_y),
-        _comp("Resistor", _CTRL_X, 344, [("PART", "R2"), ("RESISTANCE", r2)], rot=1),
-        _wire(_CTRL_X, ctrl_y, _CTRL_X, 344),
-        _wire(_CTRL_X, 392, _CTRL_X, _GND_Y),
-        _comp("Ground", _CTRL_X, _GND_Y, []),
+        _comp("Resistor", _BIAS_X, 160, [("PART", "R1"), ("RESISTANCE", r1)], rot=1),
+        _wire(_BIAS_X, _VCC_Y, _BIAS_X, 160),
+        _wire(_BIAS_X, 208, _BIAS_X, ctrl_y),
+        _comp("Resistor", _BIAS_X, 344, [("PART", "R2"), ("RESISTANCE", r2)], rot=1),
+        _wire(_BIAS_X, ctrl_y, _BIAS_X, 344),
+        _wire(_BIAS_X, 392, _BIAS_X, _GND_Y),
+        _comp("Ground", _BIAS_X, _GND_Y, []),
+        _wire(_BIAS_X, ctrl_y, _CTRL_X, ctrl_y),  # bridge the divider tap to the base/gate
     ]
 
 
 def _ac_input(ctrl_y: int, source: str, cin: str) -> list[str]:
-    """AC source -> coupling cap -> control node; labels the input node IN."""
+    """AC source -> coupling cap -> the divider/control node; labels it IN."""
     return [
         _comp(SOURCE.shape, 96, ctrl_y, [("PART", "Vin"), (SOURCE.value_attr, source)]),
         _wire(96, ctrl_y, 96, ctrl_y + 24),
@@ -388,7 +396,7 @@ def _ac_input(ctrl_y: int, source: str, cin: str) -> list[str]:
         _label("IN", 144, ctrl_y),
         _wire(144, ctrl_y, 200, ctrl_y),
         _comp("Capacitor", 200, ctrl_y, [("PART", "Cin"), ("CAPACITANCE", cin)]),
-        _wire(248, ctrl_y, _CTRL_X, ctrl_y),
+        _wire(248, ctrl_y, _BIAS_X, ctrl_y),      # meet the divider tap end-to-end
     ]
 
 
