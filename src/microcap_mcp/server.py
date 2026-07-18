@@ -664,6 +664,82 @@ def draw_schematic(cir: str) -> Any:
     }
 
 
+def _strip_sections(cir: str, names: set[str]) -> str:
+    """Remove whole ``[Section]`` blocks (e.g. Limits, WaveForm) from a .CIR."""
+    out: list[str] = []
+    skip = False
+    for line in cir.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            skip = s[1:-1] in names
+        if not skip:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _fmt_volt(v: float) -> str | None:
+    import math
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return None
+    av = abs(v)
+    if av and av < 1:
+        return f"{v * 1000:.0f} mV"
+    return f"{v:.2f} V"
+
+
+@mcp.tool()
+def annotate_schematic(cir: str) -> Any:
+    """Render the schematic as SVG with each labelled node's DC operating-point
+    voltage written beside it — a marked-up drawing you can read the bias off.
+
+    Runs the DC operating point (a short transient at t=0), reads the voltage at
+    every ``[Grid Text]`` node the schematic labels (``IN``, ``OUT``, ``OUTP``…),
+    and overlays them on the drawing. Best on the generated stages and other
+    circuits that hold a stable operating point.
+    """
+    from . import draw
+
+    labels = [t for t, _, _ in draw.parse(cir).labels]
+    if not labels:
+        return {"error": "the schematic has no labelled nodes to annotate."}
+
+    # Rebuild the circuit for a DC operating point: keep the drawing, page and
+    # model, replace Limits/WaveForm with a short transient and one trace per
+    # labelled node so all their voltages come back in a single run.
+    body = _strip_sections(cir, {"Limits", "WaveForm"}).rstrip()
+    waves = "".join(
+        f"\n\n[WaveForm]\nAnalysis=Transient\nPlt=1\nAliasID={i}\n"
+        f"XExp=T\nYExp=V({node})\nOptions=OUTPUT,LINEARY\nEnable=Enable"
+        for i, node in enumerate(labels, 1)
+    )
+    probe = f"{body}\n\n[Limits]\nAnalysis=Transient\nTRange=1u\nNPts=5\nTemp=27{waves}\n"
+
+    try:
+        result = _driver().simulate_cir(probe, analysis="transient", points=5)
+        table = result.numeric.runs[0].table
+    except (MicroCapError, ValueError, IndexError) as e:
+        return {"error": f"could not find the operating point: {e}"}
+
+    col = {c: i for i, c in enumerate(table.columns)}
+    annotations: dict[str, str] = {}
+    for node in labels:
+        idx = col.get(f"V({node})")
+        if idx is None or not table.rows:
+            continue
+        val = table.rows[0][idx]
+        text = _fmt_volt(val if isinstance(val, (int, float)) else None)
+        if text is not None:
+            annotations[node] = text
+
+    svg = draw.render_svg(cir, annotations=annotations)
+    return {
+        "mime_type": "image/svg+xml",
+        "data": base64.b64encode(svg.encode("utf-8")).decode("ascii"),
+        "svg": svg,
+        "operating_point": annotations,
+    }
+
+
 @mcp.tool()
 def plot_schematic(cir: str, analysis: str = "ac", points: int | None = None) -> Any:
     """Run a ``.CIR`` schematic and return Micro-Cap's rendered plot as a JPEG.
