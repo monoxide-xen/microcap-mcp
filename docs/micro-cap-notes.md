@@ -265,3 +265,23 @@ AC-coupled input) reproduces the small-signal gain `-Rc/(Re+re')` to ~1%.
 One more sharp edge: a part and a node must not share a name — naming the
 supply source `VCC` *and* labelling its net `VCC` earns a warning and muddies
 the netlist; give the label and the part different names.
+
+**Wires join only at endpoints, not at midpoints.** A wire whose endpoint lands
+partway along another wire — a T-junction — does *not* connect: Micro-Cap ties
+`[Wire]` segments together only where their endpoints coincide (and to a
+component pin at that coordinate). A single device never hits this because every
+branch runs pin-to-pin, but a fan-out node does: the joined emitters of a
+differential pair, or a supply rail feeding several taps, must be built from
+segments that meet end-to-end, splitting the run at each tap. Drop a tap onto
+the middle of a wire and that branch is silently open — the stage biases as if
+it were not there (measured: a long-tailed pair whose tail tapped the emitter
+wire at its midpoint sat with both collectors at `Vcc`, i.e. cut off; splitting
+the emitter run at the tap turned it on and the collectors came to mid-supply).
+
+A near-ideal single-transistor bias trick used above: drive a base from a
+`Voltage Source` whose VALUE carries both the operating point and the signal,
+`DC=6 AC=1`. The AC analysis linearises around the DC, so one source both biases
+the base and injects the small signal — no coupling capacitor, no separate bias
+network. (Watch the source orientation: its pins are Minus-left, Plus-right, so
+a source mirrored to sit on the *right* of its node feeds the node its Minus and
+inverts the bias — a base meant for `+6 V` reads `-6 V`.)

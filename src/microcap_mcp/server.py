@@ -346,6 +346,56 @@ def generate_mosfet_amplifier(
 
 
 @mcp.tool()
+def generate_differential_pair(
+    rc: str = "10K",
+    rt: str | None = None,
+    vcc: str = "12",
+    vb: str | None = None,
+    source: str = "AC=1",
+    analysis: str = "AC",
+    output_node: str = "OUTP",
+) -> dict[str, Any]:
+    """Draw a ``.CIR`` BJT long-tailed (differential) pair.
+
+    Two matched NPN sharing an emitter tail resistor to ground, each collector
+    loaded by ``Rc``. Single-ended drive on one base; the collectors ``OUTP``
+    and ``OUTN`` swing in antiphase, each with magnitude ``Rc/(2*re')``. The
+    common-mode base voltage and tail resistor are auto-sized to bias both
+    collectors near mid-supply, so the pair is balanced and in the active region
+    — the differential gain then works out near ``Vcc/(4*Vt)``, set by the
+    supply rather than by ``Rc``. Both collectors are labelled; the default
+    trace plots ``OUTP`` (edit it to plot ``OUTN``).
+
+    Args:
+        rc: collector load on each side.
+        rt: emitter tail resistor; leave unset to auto-size for mid-supply.
+        vcc: supply voltage.
+        vb: common-mode base voltage; leave unset for ``vcc/2``.
+        source: AC drive VALUE for the input base (``"AC=1"``).
+        analysis: AC, Transient, or DC.
+        output_node: which collector the default trace plots (``OUTP``/``OUTN``).
+
+    Returns the ``.CIR`` text.
+    """
+    from . import schematic as sch
+
+    try:
+        cir = sch.differential_pair(
+            rc=rc, rt=rt, vcc=vcc, vb=vb, source=source,
+            analysis=analysis, output_node=output_node,
+        )
+    except sch.SchematicError as e:
+        return {"error": str(e)}
+    return {
+        "schematic": cir,
+        "format": "microcap_schematic",
+        "output_node": output_node,
+        "note": "OUTP and OUTN are both labelled; the default trace is OUTP. "
+                "Run it with simulate_schematic, or save it as a .CIR.",
+    }
+
+
+@mcp.tool()
 def generate_schematic(
     parts: list[str],
     source: str = "DC=0 AC=1",
