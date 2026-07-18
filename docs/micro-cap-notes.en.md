@@ -173,3 +173,116 @@ A black JPEG is a valid file — a format check passes it. Only the size gives i
 53 KB against 315 KB for a real plot.
 
 So: only suppress the window when no image was requested.
+
+## Generating a `.CIR` from scratch
+
+Facts that make schematic generation work (the driver ships a bounded
+generator — a source and a series chain of two-terminal passives):
+
+**Shape and component definitions are built-in.** A `.CIR` that places parts by
+name (`Resistor`, `Capacitor`, `Ground`, ...) without embedding any `[shapedef]`
+or `[compdef]` still opens and simulates. So a generator needs only `[Main]`,
+`[Comp]`/`[Attr]` placements, `[Wire]` segments, `[Grid Text]` node labels, and
+`[Limits]`.
+
+**Pin geometry lives in `Standard.cmp`**, in grid units (×8 for pixels):
+
+```
+[compdef]
+Name=Resistor
+Pin="Plus",6,0,-10,-4     ; Plus at grid (6,0) = 48 px
+Pin="Minus",0,0,-14,-4    ; Minus at grid (0,0)
+```
+
+Every supported two-terminal part — R, C, L, Battery, Voltage Source — shares
+this layout: Minus at (0,0), Plus at (6,0), horizontal at `Rot=0`. Knowing the
+real pin positions is the difference between building the intended circuit and
+whatever Micro-Cap extracts from misplaced wires (a guessed vertical source
+left `V(OUT)=0`).
+
+**A node is named by a `[Grid Text]` label at its wire coordinate**, e.g.
+`[Grid Text]
+Text="OUT"
+Px=160,128`.
+
+**A plot expression needs `Plt`/`AliasID`/`Enable`**, or Micro-Cap reports
+"Must select an expression to plot".
+
+**A `Voltage Source` (`Definition=VSpice`) takes a `VALUE` attribute** in
+Micro-Cap syntax, e.g. `DC=0 AC=1` for an AC probe or a `PULSE ...` line for
+transient — not the SPICE `AC 1` spelling.
+
+Verified by generating an RC low-pass that reproduces `1/sqrt(2)` at the cutoff,
+a resistive divider at exactly 0.5, an RL high-pass, and a charging transient.
+
+### Parallel branches and active components
+
+**Parallel branches work with the same passive geometry.** Elements sharing a
+node just need their own wire down to their own ground. A series R feeding a
+parallel L-C tank resonates at `1/(2*pi*sqrt(LC))` as it should.
+
+**Active components need three extra things — none in the manual.** An op-amp is
+a macro/subcircuit component; a `.CIR` that instantiates one (unlike a passive)
+needs, found by bisecting a working circuit to its minimum:
+
+* a `[Page]` section — minimally `[Page]
+Name=Page 1`;
+* the model in a `[Text Area]` **tagged with the page**:
+  `[Text Area]
+Section=0
+Page=1
+Text=.MODEL O1 OPA (LEVEL=1 A=1e6 ...)`;
+* **section order** — Main, Circuit, drawing, Page, Text Area, Limits, WaveForm.
+  Passives tolerate any order; the op-amp does not (wrong order gives
+  "Bad format in loading file"; a missing page gives "Missing model statement").
+
+Op-amp pins from `Standard.cmp` (grid units): Plus in (0,0), Minus in (0,6),
+Output (9,3); VCC (4,-1)/VEE (4,7) float for the near-ideal LEVEL=1 model.
+Transistors: NPN Collector (3,-3), Base (0,0), Emitter (3,3).
+
+With these, the generator produces inverting and non-inverting op-amp
+amplifiers, verified against `-Rf/Rin` and `1 + Rf/Rg`.
+
+**Transistors: the real trap is the grid, not rotation.** The NPN is a
+*primitive* (not a macro), referencing a model by name — `2N2222` from the
+global library, or a local `.MODEL QN NPN (...)`. Its pins from `Standard.cmp`
+are Collector (3,-3), Base (0,0), Emitter (3,3), at `Rot=0` — no rotation is
+needed (the shipped COLPITTS.cir places its NPN at `Rot=0` and its collector
+wire lands exactly on Base+(24,-24), confirming the geometry).
+
+The failure that looked like a rotation problem was actually this: **a
+`[Grid Text]` node label only binds if its coordinate is a multiple of the 8 px
+grid.** A label placed off-grid is silently dropped, and the analysis aborts
+with `Can't find label 'OUT' in V(...)` — the same error a missing macro gives,
+which is what made it look like the transistor "did not instantiate". It did:
+the batch log showed the four analog nodes built and only the *plot label*
+unresolved. The NPN pins sit at Base ±(24,∓24); if the placement origin's `y`
+is not itself a multiple of 8, every pin lands off-grid and no label on them
+binds. Put the whole device on the 8 px grid and it works — no rotation-aware
+geometry, no special case beyond the passives.
+
+With that, a common-emitter stage (divider bias, unbypassed `Re`,
+AC-coupled input) reproduces the small-signal gain `-Rc/(Re+re')` to ~1%.
+One more sharp edge: a part and a node must not share a name — naming the
+supply source `VCC` *and* labelling its net `VCC` earns a warning and muddies
+the netlist; give the label and the part different names.
+
+**Wires join only at endpoints, not at midpoints.** A wire whose endpoint lands
+partway along another wire — a T-junction — does *not* connect: Micro-Cap ties
+`[Wire]` segments together only where their endpoints coincide (and to a
+component pin at that coordinate). A single device never hits this because every
+branch runs pin-to-pin, but a fan-out node does: the joined emitters of a
+differential pair, or a supply rail feeding several taps, must be built from
+segments that meet end-to-end, splitting the run at each tap. Drop a tap onto
+the middle of a wire and that branch is silently open — the stage biases as if
+it were not there (measured: a long-tailed pair whose tail tapped the emitter
+wire at its midpoint sat with both collectors at `Vcc`, i.e. cut off; splitting
+the emitter run at the tap turned it on and the collectors came to mid-supply).
+
+A near-ideal single-transistor bias trick used above: drive a base from a
+`Voltage Source` whose VALUE carries both the operating point and the signal,
+`DC=6 AC=1`. The AC analysis linearises around the DC, so one source both biases
+the base and injects the small signal — no coupling capacitor, no separate bias
+network. (Watch the source orientation: its pins are Minus-left, Plus-right, so
+a source mirrored to sit on the *right* of its node feeds the node its Minus and
+inverts the bias — a base meant for `+6 V` reads `-6 V`.)
