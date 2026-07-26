@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.monoxide-xen/microcap-mcp",
+  "description": "Simulate, generate and draw analog circuits in Micro-Cap 12: SPICE analyses, parameter sweeps, plots, and schematics rendered 1:1 with Micro-Cap",
+  "repository": {
+    "url": "https://github.com/monoxide-xen/microcap-mcp",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "microcap-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MICROCAP_HOME",
+          "description": "Folder holding mc12_64.exe, if Micro-Cap 12 is installed somewhere the automatic scan does not find",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

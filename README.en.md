@@ -104,3 +104,7 @@ Without Micro-Cap the integration tests skip, so CI stays green.
 ## Licence
 
 [MIT](https://github.com/monoxide-xen/microcap-mcp/blob/master/LICENSE) for the code in this repository. Micro-Cap 12 belongs to Spectrum Software — not included, redistributed or modified: this uses its documented CLI.
+
+---
+
+mcp-name: io.github.monoxide-xen/microcap-mcp
