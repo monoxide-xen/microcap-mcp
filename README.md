@@ -36,25 +36,43 @@
 
 ## Установка
 
+Нужен Windows, Python 3.11+ и установленный [Micro-Cap 12](https://spectrum-soft.com/) (фримварь). Клонировать ничего не надо — укажи в MCP-клиенте, и `uvx` сам скачает пакет:
+
+```jsonc
+{
+  "mcpServers": {
+    "microcap": {
+      "command": "uvx",
+      "args": ["microcap-mcp"],
+      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // только если автопоиск не нашёл
+    }
+  }
+}
+```
+
+Драйвер сам ищет Micro-Cap в типовых местах; `MICROCAP_HOME` укажи на папку с `mc12_64.exe`, если он лежит нестандартно.
+
+<details>
+<summary>Из исходников</summary>
+
 ```bash
 git clone https://github.com/monoxide-xen/microcap-mcp
 cd microcap-mcp
 uv sync
 ```
 
-Нужен Windows, Python 3.11+ и установленный [Micro-Cap 12](https://spectrum-soft.com/) (фримварь). Подключение к MCP-клиенту:
-
 ```jsonc
 {
   "mcpServers": {
     "microcap": {
       "command": "uv",
-      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"],
-      "env": { "MICROCAP_HOME": "E:/Tools/MC12" }   // если автопоиск не нашёл
+      "args": ["--directory", "C:/path/to/microcap-mcp", "run", "microcap-mcp"]
     }
   }
 }
 ```
+
+</details>
 
 ## Инструменты
 
