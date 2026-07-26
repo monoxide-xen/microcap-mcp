@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence covers the code in this repository only.
-
-Micro-Cap 12 itself is the work of Spectrum Software, released as freeware in
-2019 when the company closed. It is not included, redistributed, modified or
-patched here — this project only drives its documented command-line batch
-interface. You must obtain and install Micro-Cap 12 yourself.
